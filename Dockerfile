@@ -20,10 +20,12 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Build the application
+# Generate Prisma client before build
+RUN npx prisma generate
+
 RUN npm run build
 
-# Production stage
+
 FROM node:18-alpine
 
 # Install runtime dependencies for pdf-to-png-converter
@@ -39,12 +41,11 @@ COPY package*.json ./
 
 # Install only production dependencies
 RUN npm ci --omit=dev
+ 
 
-# Copy built application from builder
 COPY --from=builder /app/dist ./dist
 
-# Expose port (adjust if your NestJS uses different port)
-EXPOSE 3000
+EXPOSE 5000
 
 # Start the application
-CMD ["node", "dist/main.js"]
+CMD ["node", "dist/src/main.js"]
