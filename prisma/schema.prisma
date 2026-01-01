@@ -1,0 +1,281 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+//
+// ENUMS
+//
+enum Subscription {
+  FREE
+  PRO
+  PREMIUM
+}
+
+//
+// USER
+//
+model User {
+  id           String         @id @default(cuid())
+  googleId     String?        @unique
+  email        String         @unique
+  name         String?
+  picture      String?
+  role         String         @default("user")
+  subscription Subscription   @default(FREE)
+  model        ModelType      @default(STANDARD) 
+  country      String?
+  address      String?
+  exceptionCode String?
+  stripeCustomerId String?      @unique
+
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  smartQrs     SmartQR[]
+  candidate   Candidate?
+  events       Event[]
+  refreshTokens RefreshToken[] 
+  payment       Payment[]
+  portfolio    Portfolio?     // <-- RELATION INVERSE
+}
+
+model Portfolio {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String   @unique
+
+  title     String?
+  bio       String?
+  image     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  isPaid    Boolean       @default(false)
+  PaymentId String? 
+
+  themeId   String?  
+
+  theme     Theme?    @relation("PortfolioTheme", fields: [themeId], references: [id])
+
+  projects    Project[]
+  softSkills  SoftSkill[]
+}
+
+
+model Project {
+  id          String     @id @default(cuid())
+  portfolio   Portfolio  @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  portfolioId String
+  title       String
+  description String?
+  tag        String[]   
+  link        String?
+  image       String?
+}
+model SoftSkill {
+  id          String     @id @default(cuid())
+  portfolio   Portfolio   @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  portfolioId String
+  skill       String
+
+}
+
+enum ModelType {
+  STANDARD
+  PORTFOLIO
+}
+
+//
+// SMART QR
+//
+model SmartQR {
+  id          String     @id @default(cuid())
+  slug        String     @unique
+  qrText      String
+  x           Float
+  y           Float
+  size        Float
+  pageCount   Int?        // ex: num pages dans le CV
+  createdAt   DateTime    @default(now())
+
+  user        User        @relation(fields: [userId], references: [id])
+  userId      String
+}
+
+//
+// CANDIDATE
+//
+model Candidate {
+  id        String       @id @default(cuid())
+  user      User         @relation(fields: [userId], references: [id])
+  userId    String       @unique 
+  firstname String
+  lastname  String
+  title     String?
+  status    String    @default("free")
+  bio       String?
+  nindo     String?
+  slug      String      @unique
+  isPrivate Boolean     @default(false)
+  isPrivatePaid Boolean       @default(false)
+  cvUrl     String?
+  imageUrl  String?
+  accessCode String?          @unique
+
+  createdAt DateTime    @default(now())
+
+  links     Link[]
+}
+
+//
+// CANDIDATE LINKS
+//
+model Link {
+  id          String     @id @default(cuid())
+  candidate   Candidate  @relation(fields: [candidateId], references: [id] ,onDelete: Cascade)
+  candidateId String
+
+  title       String
+  url         String
+  order       Int?
+}
+
+//
+// EVENTS
+//
+model Event {
+  id          String          @id @default(cuid())
+  user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+
+  title       String
+  description String?
+  location    String?
+  category    String?
+  date        DateTime?
+  time        String?
+  contact     String?
+  visibility  String          @default("public")
+  isPrivate   Boolean         @default(false)
+  isPrivatePaid Boolean       @default(false)
+  eventImage  String?
+  duration    String?
+  mapUrl      String?
+  slug        String          @unique
+  accessCode  String?         @unique
+
+  createdAt   DateTime        @default(now())
+
+  links       EventLink[]
+  participants Participant[]
+}
+
+//
+// EVENT LINKS
+//
+model EventLink {
+  id        String   @id @default(cuid())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId   String
+
+  title     String
+  url       String
+  order     Int?
+}
+
+//
+// EVENT PARTICIPANTS
+//
+model Participant {
+  id        String  @id @default(cuid())
+  event     Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId   String
+
+  name      String
+  role      String
+}
+
+model Theme {
+  id             String      @id @default(cuid())
+  name           String      @unique
+  bg             String
+  gradient       String
+  text_primary   String
+  text_secondary String
+
+  portfolios     Portfolio[] @relation("PortfolioTheme")
+}
+
+
+model RefreshToken {
+  id        String   @id @default(cuid())
+  token     String   @unique 
+  userId    String   
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+enum PaymentType {
+  
+  portfolio
+  privacy_event
+  privacy_candidate
+}
+
+
+
+model Payment {
+  id                   String   @id @default(cuid())
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId               String
+  productId            String   @unique
+  stripePaymentIntentId String?
+  stripeSubscriptionId String?
+  amount               Int
+  currency             String
+  type                 PaymentType
+  status               String
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  
+  sessions             PaymentSession[] 
+}
+
+model PaymentSession {
+  id               String    @id @default(cuid())
+  payment          Payment   @relation(fields: [paymentId], references: [id], onDelete: Cascade)
+  paymentId        String
+  stripeSessionId  String    @unique
+  status           String
+  type             PaymentType
+  token            String    @unique @default(dbgenerated("gen_random_uuid()"))
+  used             Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+// model Invoice {
+//   id              String   @id @default(cuid())
+//   invoiceNumber   String   @unique
+//   payment         Payment  @relation(fields: [paymentId], references: [id])
+//   paymentId       String
+//   userId          String
+//   amount          Int
+//   currency        String
+//   type            PaymentType
+//   status          String   // 'sent', 'failed'
+//   sentAt          DateTime?
+//   createdAt       DateTime @default(now())
+  
+//   customerName    String
+//   customerEmail   String
+//   customerAddress String?
+//   productName     String
+//   description     String?
+// }
