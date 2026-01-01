@@ -20,6 +20,11 @@ COPY package*.json ./
 # Install all dependencies
 RUN npm ci
 
+# DEBUG: Check if pdf-to-png-converter was installed IN BUILDER
+RUN echo "=== BUILDER: Checking for pdf-to-png-converter ===" && \
+    ls -la /app/node_modules/ | grep pdf && \
+    ls -la /app/node_modules/pdf-to-png-converter || echo "NOT INSTALLED IN BUILDER"
+
 # Copy source code
 COPY . .
 
@@ -51,11 +56,9 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 
-# DEBUG: Verify what's copied
-RUN echo "=== Checking /app contents ===" && ls -la /app/
-RUN echo "=== Checking if node_modules exists ===" && ls -la /app/node_modules | head -20
-RUN echo "=== Checking for pdf-to-png-converter ===" && ls -la /app/node_modules/ | grep pdf || echo "NOT FOUND in node_modules root"
-RUN echo "=== Full check ===" && find /app/node_modules -name "pdf-to-png-converter" -type d || echo "NOT FOUND anywhere"
+# DEBUG: Verify what's copied in PRODUCTION
+RUN echo "=== PRODUCTION: Checking for pdf-to-png-converter ===" && \
+    ls -la /app/node_modules/ | grep pdf || echo "NOT FOUND in production node_modules"
 
 # Expose port
 EXPOSE 5000
