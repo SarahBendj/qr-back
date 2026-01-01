@@ -23,9 +23,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-
-# Generate Prisma client and deploy migrations
-RUN npx prisma generate && npx prisma migrate deploy
+# Generate Prisma client ONLY (no migrations during build)
+RUN npx prisma generate
 
 # Build the NestJS app
 RUN npm run build
@@ -53,9 +52,10 @@ RUN npm ci --omit=dev
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Expose the port
 EXPOSE 5000
 
-# Start the application
-CMD ["node", "dist/src/main.js"]
+# Run migrations at startup, then start the app
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/src/main.js"]
