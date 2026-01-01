@@ -17,8 +17,8 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install all dependencies
-RUN npm ci
+# Use npm install instead of npm ci to force fresh install
+RUN npm install --production=false
 
 # DEBUG: Check if pdf-to-png-converter was installed IN BUILDER
 RUN echo "=== BUILDER: Checking for pdf-to-png-converter ===" && \
