@@ -23,6 +23,8 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
+
 # Generate Prisma client ONLY (no migrations during build)
 RUN npx prisma generate
 
