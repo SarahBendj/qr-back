@@ -44,17 +44,13 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 
-# Copy package files
-COPY package*.json ./
+# Copy package files and ALL node_modules from builder
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
 
-# Install only production dependencies
-RUN npm ci --omit=dev
-
-# Copy built app, Prisma client and migrations from builder
+# Copy built app and Prisma files from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 
 # Expose the port
 EXPOSE 5000
