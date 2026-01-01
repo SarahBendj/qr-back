@@ -17,15 +17,16 @@ WORKDIR /app
 # Copy package files
 COPY package*.json ./
 
-# Install ALL dependencies for build
+# Install all dependencies
 RUN npm ci
 
 # Copy source code
 COPY . .
 
+# Provide a dummy DATABASE_URL for Prisma generate
 ENV DATABASE_URL="postgresql://dummy:dummy@localhost:5432/dummy"
 
-# Generate Prisma client ONLY (no migrations during build)
+# Generate Prisma client ONLY
 RUN npx prisma generate
 
 # Build the NestJS app
@@ -40,20 +41,23 @@ FROM node:18-alpine
 RUN apk add --no-cache \
     cairo \
     pango \
-    pixman
+    pixman \
+    g++ \
+    make \
+    python3 \
+    libc6-compat
 
 WORKDIR /app
 
-# Copy package files and ALL node_modules from builder
+# Copy built app and node_modules from builder
 COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/node_modules ./node_modules
-
-# Copy built app and Prisma files from builder
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 
-# Expose the port
+
+# Expose port
 EXPOSE 5000
 
-# Run migrations at startup, then start the app
+# Start the app (run migrations then main)
 CMD ["npm", "run", "start:prod"]
