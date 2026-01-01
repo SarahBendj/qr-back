@@ -1,9 +1,16 @@
-# lancer REDIS
-redis-server --daemonize yes
+#!/bin/bash
 
-# lancer la databse 
-sudo service postgresql start 
+if [ ! -f "prisma/schema.prisma" ]; then
+  echo " Initializing Prisma..."
+  npx prisma init
+fi
 
-# lancer le projet
+echo " Generating Prisma client..."
+npx prisma generate
 
-npm run start
+
+echo "Applying migrations..."
+npx prisma migrate dev --name init --smart-qr
+
+echo "Starting NestJS app..."
+node dist/src/main.js
