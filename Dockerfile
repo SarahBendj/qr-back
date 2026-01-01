@@ -41,11 +41,7 @@ FROM node:18-alpine
 RUN apk add --no-cache \
     cairo \
     pango \
-    pixman \
-    g++ \
-    make \
-    python3 \
-    libc6-compat
+    pixman
 
 WORKDIR /app
 
@@ -55,6 +51,11 @@ COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 
+# DEBUG: Verify what's copied
+RUN echo "=== Checking /app contents ===" && ls -la /app/
+RUN echo "=== Checking if node_modules exists ===" && ls -la /app/node_modules | head -20
+RUN echo "=== Checking for pdf-to-png-converter ===" && ls -la /app/node_modules/ | grep pdf || echo "NOT FOUND in node_modules root"
+RUN echo "=== Full check ===" && find /app/node_modules -name "pdf-to-png-converter" -type d || echo "NOT FOUND anywhere"
 
 # Expose port
 EXPOSE 5000
