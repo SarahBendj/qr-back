@@ -8,7 +8,7 @@
 "scripts": {
   "build": "nest build",
   "prisma:prepare": "npx prisma generate && npx prisma migrate deploy",
-  "start": "npm run prisma:prepare && node dist/src/main.js",
+  "start": "npm run prisma:prepare && nest start",
   "start:dev": "nest start --watch",
   "start:debug": "nest start --debug --watch",
   "start:prod": "npm run prisma:prepare && node dist/src/main.js",
@@ -19,7 +19,8 @@
   "test:cov": "jest --coverage",
   "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
   "test:e2e": "jest --config ./test/jest-e2e.json"
-},
+}
+,
   "dependencies": {
     "@aws-sdk/client-s3": "^3.958.0",
     "@nestjs/common": "^11.0.1",
@@ -42,7 +43,6 @@
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "pdf-lib": "^1.17.1",
-    "pdf-to-png-converter": "^3.11.0",
     "qrcode": "^1.5.4",
     "reflect-metadata": "^0.2.2",
     "resend": "^6.6.0",
