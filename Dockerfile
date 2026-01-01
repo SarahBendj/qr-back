@@ -23,8 +23,6 @@ RUN npm ci
 # Copy source code
 COPY . .
 
-# Copy .env
-COPY .env .env
 
 # Generate Prisma client and deploy migrations
 RUN npx prisma generate && npx prisma migrate deploy
