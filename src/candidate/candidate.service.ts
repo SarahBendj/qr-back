@@ -198,88 +198,60 @@ const candidate = await this.prisma.candidate.create({
     };
   }
 
-async assignPortfolioToExistingProfil(userId: string) {
-  // 1. Vérifier que le candidat existe
-  const candidate = await this.prisma.candidate.findUnique({ 
-    where: { userId } 
+  async assignPortfolioToExistingProfil(userId: string) {
+
+    const candidateExists = await this.prisma.candidate.findUnique({ where : {userId}})
+      if(!candidateExists){
+        throw new BadGatewayException()
+      }
+
+
+    
+  const candidate = await this.prisma.candidate.update({
+    where: { userId },
+    data: { status: 'pending' },
   });
 
-  if (!candidate) {
-    throw new NotFoundException('Candidate not found');
-  }
+  await this.prisma.user.update({
+    where: { id: userId },
+    data: { subscription: 'PRO'  , model :'PORTFOLIO'},
+  });
 
-  // 2. Vérifier l'abonnement Stripe
-  const invoiceStillActive = await this.stripeService.checkActiveSubscription(userId);
-  
-  const candidateStatus = invoiceStillActive ? 'active' : 'pending';
-  const portfolioIsPaid = invoiceStillActive;
 
-  // 3. Préparer les mises à jour de base
-  const updates = [
-    // Mise à jour du candidat
-    this.prisma.candidate.update({
-      where: { userId },
-      data: { status: candidateStatus },
-    }),
+  const url = `smart-profile/portfolio/${candidate.slug}`;
 
-    // Mise à jour de l'utilisateur
-    this.prisma.user.update({
-      where: { id: userId },
-      data: { 
-        subscription: 'PRO',
-        model: 'PORTFOLIO' 
-      },
-    }),
+  const existingPortfolio = await this.prisma.portfolio.findUnique({
+    where: { userId },
+  });
 
-    // Upsert du portfolio
-    this.prisma.portfolio.upsert({
-      where: { userId },
-      create: {
+  if (!existingPortfolio) {
+    await this.prisma.portfolio.create({
+      data: {
         userId,
         title: `${candidate.firstname} ${candidate.lastname} Portfolio`,
-        isPaid: portfolioIsPaid,
-      },
-      update: {
-        isPaid: portfolioIsPaid,
-      },
-    }),
-  ];
 
-  // 4. Mettre à jour les paiements si abonnement actif ET productId différent
-  if (invoiceStillActive) {
-    // Récupérer les paiements existants pour vérifier
-    const existingPayments = await this.prisma.payment.findMany({
-      where: { 
-        userId,
-        productId: { not: candidate.id } // Seulement ceux avec un productId différent
       },
     });
+  }
+   const invoiceStillActive = await this.stripeService.checkActiveSubscription(userId)
 
-    // Mettre à jour seulement si nécessaire
-    if (existingPayments.length > 0) {
-      updates.push(
-        this.prisma.payment.updateMany({
-          where: { 
-            userId,
-            productId: { not: candidate.id }
-          },
-          data: { productId: candidate.id },
-        })
-      );
-    }
+
+        if (invoiceStillActive) {
+          await this.prisma.payment.update({
+            where: { userId },
+            data: { productId : candidate.id },
+          });
+      await this.prisma.candidate.update({
+        where: { userId },
+        data: { status: 'active' },
+      });
+      await this.prisma.portfolio.update({
+    where: { userId },
+    data: { isPaid: true },
+  });
   }
 
-  // 5. Exécuter la transaction
-  const [updatedCandidate, , portfolio] = await this.prisma.$transaction(updates);
-
-  const url = `smart-profile/portfolio/${updatedCandidate.slug}`;
-
-  return { 
-    url, 
-    candidate: updatedCandidate,
-    portfolio,
-    isPaid: portfolioIsPaid 
-  };
+  return { url, candidate };
 }
 
   
