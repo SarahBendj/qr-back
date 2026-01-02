@@ -199,36 +199,67 @@ const candidate = await this.prisma.candidate.create({
   }
 
   async assignPortfolioToExistingProfil(userId: string) {
+  try {
+    // Start a transaction
+    const result = await this.prisma.$transaction(async (prisma) => {
+      // 1️⃣ Update candidate status to 'pending'
+      const candidate = await prisma.candidate.update({
+        where: { userId },
+        data: { status: 'pending' },
+      });
 
-  const candidate = await this.prisma.candidate.update({
-    where: { userId },
-    data: { status: 'pending' },
-  });
+      // 2️⃣ Update user subscription and model
+      await prisma.user.update({
+        where: { id: userId },
+        data: { subscription: 'PRO', model: 'PORTFOLIO' },
+      });
 
-  await this.prisma.user.update({
-    where: { id: userId },
-    data: { subscription: 'PRO'  , model :'PORTFOLIO'},
-  });
+      // 3️⃣ Upsert portfolio (create if not exists)
+      const portfolio = await prisma.portfolio.upsert({
+        where: { userId },
+        update: {},
+        create: {
+          userId,
+          title: `${candidate.firstname} ${candidate.lastname} Portfolio`,
+        },
+      });
 
-  const url = `smart-profile/portfolio/${candidate.slug}`;
+      const url = `smart-profile/portfolio/${candidate.slug}`;
 
-  const existingPortfolio = await this.prisma.portfolio.findUnique({
-    where: { userId },
-  });
+      // 4️⃣ Check Stripe subscription
+      const invoiceStillActive = await this.stripeService.checkActiveSubscription(userId);
 
-  if (!existingPortfolio) {
-    await this.prisma.portfolio.create({
-      data: {
-        userId,
-        title: `${candidate.firstname} ${candidate.lastname} Portfolio`,
+      if (invoiceStillActive) {
+        // 5️⃣ Update payments
+        await prisma.payment.updateMany({
+          where: { userId },
+          data: { productId: candidate.id },
+        });
 
-      },
+        // 6️⃣ Update candidate status to 'active'
+        await prisma.candidate.update({
+          where: { userId },
+          data: { status: 'active' },
+        });
+
+        // 7️⃣ Mark portfolio as paid
+        await prisma.portfolio.update({
+          where: { userId },
+          data: { isPaid: true },
+        });
+      }
+
+      // 8️⃣ Return URL and candidate
+      return { url, candidate };
     });
+
+    return result;
+
+  } catch (error) {
+    console.error('Failed to activate candidate portfolio:', error);
+    throw new Error('Unable to activate candidate portfolio at this time.');
   }
-
-  return { url, candidate };
 }
-
   
 
 async getCandidateBySlug(slug: string) {
