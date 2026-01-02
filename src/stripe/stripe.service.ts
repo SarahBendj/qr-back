@@ -341,6 +341,7 @@ async handleWebhook(event: Stripe.Event) {
         data: { status: 'succeeded' },
       });
       console.log(thisd)
+      console.log('thiiiiiiiiiiiiiiiiiiiiiiiiiiiiis')
       // SaaS subscription effect
       await this.prisma.candidate.update({
         where: { id: payment.productId }, 
