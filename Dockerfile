@@ -46,7 +46,7 @@ RUN npm run build
 FROM node:18-alpine
 
 # Install runtime dependencies for pdf-to-png-converter
-RUN apk add --no-cache \
+RUN apk add --no-cache poppler-utils\
     cairo \
     pango \
     pixman
