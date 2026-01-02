@@ -1,4 +1,4 @@
-import { pdfToPng } from 'pdf-to-png-converter';
+import { fromPath } from 'pdf2pic';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -6,32 +6,20 @@ export async function pdfToImage(pdfPath: string, outputDir: string): Promise<st
   if (!fs.existsSync(outputDir)) fs.mkdirSync(outputDir, { recursive: true });
 
   const baseName = path.parse(pdfPath).name;
+  const outputPath = path.join(outputDir, `${baseName}.png`);
 
-  // Convert PDF -> PNG
-  const pngPages = await pdfToPng(pdfPath, {
-    viewportScale: 2.0,
-    outputFolder: outputDir,
-    outputFileMaskFunc: () => `${baseName}.png`,
-    pagesToProcess: [1],
-    returnPageContent: true, // must be true to get content buffer
-    processPagesInParallel: false,
-  });
+  const options = {
+    density: 200,
+    saveFilename: baseName,
+    savePath: outputDir,
+    format: 'png',
+    width: 2000,
+    height: 2000,
+  };
 
-  if (!pngPages || pngPages.length === 0) {
-    throw new Error('PDF conversion failed');
-  }
+  const convert = fromPath(pdfPath, options);
+  const result = await convert(1, { responseType: 'image' });
+  console.log(result)
 
-  const firstPage = pngPages[0];
-  if (!firstPage.content) {
-    throw new Error('PDF conversion returned empty content buffer');
-  }
-
-  // Chemin final pour le PNG
-  const pngPath = path.join(outputDir, `${baseName}.png`);
-
-  fs.writeFileSync(pngPath, firstPage.content);
-
-  
-  return `/uploads/cv/${path.basename(pngPath)}`;
+  return `/uploads/cv/${baseName}.1.png`;
 }
-

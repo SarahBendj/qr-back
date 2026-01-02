@@ -71,7 +71,9 @@ if (pdfFile) {
   fs.writeFileSync(tempPdfPath, pdfFile.buffer);
 
   // Conversion PDF -> PNG
-  await pdfToImage(tempPdfPath, tempDir);
+  const conversion = await pdfToImage(tempPdfPath, tempDir);
+  console.log(conversion )
+  console.log('=======================================pdf to png ?')
   
   const pngPath = tempPdfPath.replace('.pdf', '.png');
   
