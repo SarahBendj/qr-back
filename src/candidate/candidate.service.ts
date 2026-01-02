@@ -198,68 +198,71 @@ const candidate = await this.prisma.candidate.create({
     };
   }
 
-  async assignPortfolioToExistingProfil(userId: string) {
-  try {
-    // Start a transaction
-    const result = await this.prisma.$transaction(async (prisma) => {
-      // 1️⃣ Update candidate status to 'pending'
-      const candidate = await prisma.candidate.update({
-        where: { userId },
-        data: { status: 'pending' },
-      });
+async assignPortfolioToExistingProfil(userId: string) {
+  // 1. Vérifier que le candidat existe
+  const candidate = await this.prisma.candidate.findUnique({ 
+    where: { userId } 
+  });
 
-      // 2️⃣ Update user subscription and model
-      await prisma.user.update({
-        where: { id: userId },
-        data: { subscription: 'PRO', model: 'PORTFOLIO' },
-      });
-
-      // 3️⃣ Upsert portfolio (create if not exists)
-      const portfolio = await prisma.portfolio.upsert({
-        where: { userId },
-        update: {},
-        create: {
-          userId,
-          title: `${candidate.firstname} ${candidate.lastname} Portfolio`,
-        },
-      });
-
-      const url = `smart-profile/portfolio/${candidate.slug}`;
-
-      // 4️⃣ Check Stripe subscription
-      const invoiceStillActive = await this.stripeService.checkActiveSubscription(userId);
-
-      if (invoiceStillActive) {
-        // 5️⃣ Update payments
-        await prisma.payment.updateMany({
-          where: { userId },
-          data: { productId: candidate.id },
-        });
-
-        // 6️⃣ Update candidate status to 'active'
-        await prisma.candidate.update({
-          where: { userId },
-          data: { status: 'active' },
-        });
-
-        // 7️⃣ Mark portfolio as paid
-        await prisma.portfolio.update({
-          where: { userId },
-          data: { isPaid: true },
-        });
-      }
-
-      // 8️⃣ Return URL and candidate
-      return { url, candidate };
-    });
-
-    return result;
-
-  } catch (error) {
-    console.error('Failed to activate candidate portfolio:', error);
-    throw new Error('Unable to activate candidate portfolio at this time.');
+  if (!candidate) {
+    throw new NotFoundException('Candidate not found');
   }
+
+  // 2. Vérifier l'abonnement Stripe AVANT de faire les mises à jour
+  const invoiceStillActive = await this.stripeService.checkActiveSubscription(userId);
+  
+  const candidateStatus = invoiceStillActive ? 'active' : 'pending';
+  const portfolioIsPaid = invoiceStillActive;
+
+  // 3. Transaction atomique pour toutes les mises à jour
+  const [updatedCandidate, , portfolio] = await this.prisma.$transaction([
+    // Mise à jour du candidat
+    this.prisma.candidate.update({
+      where: { userId },
+      data: { status: candidateStatus },
+    }),
+
+    // Mise à jour de l'utilisateur
+    this.prisma.user.update({
+      where: { id: userId },
+      data: { 
+        subscription: 'PRO',
+        model: 'PORTFOLIO' 
+      },
+    }),
+
+    // Upsert du portfolio (créer ou mettre à jour)
+    this.prisma.portfolio.upsert({
+      where: { userId },
+      create: {
+        userId,
+        title: `${candidate.firstname} ${candidate.lastname} Portfolio`,
+        isPaid: portfolioIsPaid,
+      },
+      update: {
+        isPaid: portfolioIsPaid,
+      },
+    }),
+
+    // Mise à jour des paiements si abonnement actif
+    ...(invoiceStillActive ? [
+      this.prisma.payment.updateMany({
+        where: { userId },
+        data: { productId: candidate.id },
+      })
+    ] : []),
+  ]);
+
+  const url = `smart-profile/portfolio/${updatedCandidate.slug}`;
+
+  return { 
+    url, 
+    candidate: updatedCandidate,
+    portfolio,
+    isPaid: portfolioIsPaid 
+  };
 }
+
   
 
 async getCandidateBySlug(slug: string) {
