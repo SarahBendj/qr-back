@@ -44,8 +44,9 @@ export class AuthService {
         where: { id: user.id },
         data: { googleId },
       });
+      await this.mailService.sendWelcomeToClient(email ,name || 'customer')
     }
-    await this.mailService.sendWelcomeToClient(email ,name || 'customer')
+
 
     const accessToken = this.generateAccessToken(user);
     const refreshToken = await this.generateRefreshToken(user.id);
