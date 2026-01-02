@@ -20,6 +20,9 @@ COPY package*.json ./
 # Use npm install instead of npm ci to force fresh install
 RUN npm install --production=false
 
+# Force install pdf-to-png-converter explicitly
+RUN npm install pdf-to-png-converter@3.11.0 --save
+
 # DEBUG: Check if pdf-to-png-converter was installed IN BUILDER
 RUN echo "=== BUILDER: Checking for pdf-to-png-converter ===" && \
     ls -la /app/node_modules/ | grep pdf && \
