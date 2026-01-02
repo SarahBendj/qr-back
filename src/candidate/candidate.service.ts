@@ -208,14 +208,14 @@ async assignPortfolioToExistingProfil(userId: string) {
     throw new NotFoundException('Candidate not found');
   }
 
-  // 2. Vérifier l'abonnement Stripe AVANT de faire les mises à jour
+  // 2. Vérifier l'abonnement Stripe
   const invoiceStillActive = await this.stripeService.checkActiveSubscription(userId);
   
   const candidateStatus = invoiceStillActive ? 'active' : 'pending';
   const portfolioIsPaid = invoiceStillActive;
 
-  // 3. Transaction atomique pour toutes les mises à jour
-  const [updatedCandidate, , portfolio] = await this.prisma.$transaction([
+  // 3. Préparer les mises à jour de base
+  const updates = [
     // Mise à jour du candidat
     this.prisma.candidate.update({
       where: { userId },
@@ -231,7 +231,7 @@ async assignPortfolioToExistingProfil(userId: string) {
       },
     }),
 
-    // Upsert du portfolio (créer ou mettre à jour)
+    // Upsert du portfolio
     this.prisma.portfolio.upsert({
       where: { userId },
       create: {
@@ -243,15 +243,34 @@ async assignPortfolioToExistingProfil(userId: string) {
         isPaid: portfolioIsPaid,
       },
     }),
+  ];
 
-    // Mise à jour des paiements si abonnement actif
-    ...(invoiceStillActive ? [
-      this.prisma.payment.updateMany({
-        where: { userId },
-        data: { productId: candidate.id },
-      })
-    ] : []),
-  ]);
+  // 4. Mettre à jour les paiements si abonnement actif ET productId différent
+  if (invoiceStillActive) {
+    // Récupérer les paiements existants pour vérifier
+    const existingPayments = await this.prisma.payment.findMany({
+      where: { 
+        userId,
+        productId: { not: candidate.id } // Seulement ceux avec un productId différent
+      },
+    });
+
+    // Mettre à jour seulement si nécessaire
+    if (existingPayments.length > 0) {
+      updates.push(
+        this.prisma.payment.updateMany({
+          where: { 
+            userId,
+            productId: { not: candidate.id }
+          },
+          data: { productId: candidate.id },
+        })
+      );
+    }
+  }
+
+  // 5. Exécuter la transaction
+  const [updatedCandidate, , portfolio] = await this.prisma.$transaction(updates);
 
   const url = `smart-profile/portfolio/${updatedCandidate.slug}`;
 
