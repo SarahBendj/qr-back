@@ -26,6 +26,10 @@ export class CandidateService {
     if(!userId || !userEmail){
       throw new UnauthorizedException()
     }
+    const user = await this.prisma.user.findUnique({where : {id : userId}})
+    if(!user){
+      throw  new BadRequestException()
+    }
   
     const candidateCount = await this.prisma.candidate.count({
       where: { userId },
@@ -113,8 +117,14 @@ await this.prisma.user.update({
     model: dto.model,
   },
 });
-const isPortfolio =(dto.model).toLocaleLowerCase() === 'portfolio'
-// 2️⃣ Create Candidate
+//*case where the subs portfoliio is on  so even if tehy choose basic  they be on pro
+const hasPortfolioSubscription =
+  user.subscription?.toLowerCase() === 'portfolio' ||
+  user.subscription?.toLowerCase() === 'pro';
+
+const isPortfolio =
+  dto.model?.toLowerCase() === 'portfolio' || hasPortfolioSubscription;
+
 const candidate = await this.prisma.candidate.create({
   data: {
     firstname: dto.firstname,
@@ -198,15 +208,8 @@ const candidate = await this.prisma.candidate.create({
     };
   }
 
-  async assignPortfolioToExistingProfil(userId: string) {
+async assignPortfolioToExistingProfil(userId: string) {
 
-    const candidateExists = await this.prisma.candidate.findUnique({ where : {userId}})
-      if(!candidateExists){
-        throw new BadGatewayException()
-      }
-
-
-    
   const candidate = await this.prisma.candidate.update({
     where: { userId },
     data: { status: 'pending' },
@@ -216,7 +219,6 @@ const candidate = await this.prisma.candidate.create({
     where: { id: userId },
     data: { subscription: 'PRO'  , model :'PORTFOLIO'},
   });
-
 
   const url = `smart-profile/portfolio/${candidate.slug}`;
 
@@ -233,26 +235,10 @@ const candidate = await this.prisma.candidate.create({
       },
     });
   }
-   const invoiceStillActive = await this.stripeService.checkActiveSubscription(userId)
-
-
-        if (invoiceStillActive) {
-          await this.prisma.payment.update({
-            where: { userId },
-            data: { productId : candidate.id },
-          });
-      await this.prisma.candidate.update({
-        where: { userId },
-        data: { status: 'active' },
-      });
-      await this.prisma.portfolio.update({
-    where: { userId },
-    data: { isPaid: true },
-  });
-  }
 
   return { url, candidate };
 }
+
 
   
 
