@@ -5,7 +5,8 @@ import { PdfQrService } from './pdf-qr.service';
 import { Response , Express } from 'express';
 import { Throttle } from '@nestjs/throttler';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
-
+import * as fs from 'fs';
+import * as path from 'path';
 
 
 @Controller('pdf-qr')
@@ -34,11 +35,16 @@ export class PdfQrController {
       y: Number(body.y),
       size: Number(body.size),
     });
+    console.log(mergedPdf);
+
 
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="merged.pdf"`);
     res.send(mergedPdf);
-  }
+
+
+}
+  
   @Post(':url')
   async generateQr(@Param() url : string){
    const qr = await this.pdfQrService.generateQr(url)
