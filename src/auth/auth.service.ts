@@ -38,13 +38,13 @@ export class AuthService {
       user = await this.prisma.user.create({
         data: { googleId, email, name, picture },
       });
-
+     await this.mailService.sendWelcomeToClient(email ,name || 'customer')
     } else if (!user.googleId) {
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: { googleId },
       });
-      await this.mailService.sendWelcomeToClient(email ,name || 'customer')
+   
     }
 
 
