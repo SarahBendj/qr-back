@@ -95,7 +95,7 @@ export class EventController {
 
    @UseGuards(JwtAuthGuard)
   @Patch('image/:category/:slug')
-  @UseInterceptors(FileInterceptor('image', { storage: multer.memoryStorage() }))
+  @UseInterceptors(FileInterceptor('file', { storage: multer.memoryStorage() }))
 async updateIMG(
   @Req() req,
   @Param('slug') slug: string,
