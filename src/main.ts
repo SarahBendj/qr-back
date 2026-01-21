@@ -42,6 +42,6 @@ app.use(
   app.enableCors();
   app.set('trust proxy', true);
   await app.listen(port ||5000);
-  console.log('Backend running on http://0.0.0.0:5000');
+
 }
 bootstrap();

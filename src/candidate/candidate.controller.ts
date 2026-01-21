@@ -67,7 +67,7 @@ export class CandidateController {
   @Get('/assign-portfolio')
     async upgradePlan(@Req() req){
       const userId = req.user.id
-      console.log(req.user)
+    
       if(!userId){
         return new  UnauthorizedException()
       }
@@ -181,7 +181,7 @@ async updatePDF(
   @Get('access/portfolio/:slug')
   async getOnePortofolioPrivate(@Param('slug') slug: string) {
     const event = await this.candidateService.getPortfolioBySlug(slug);
-    console.log(event)
+   
     if (!event) return { message: 'Event not found' };
     return true;
   }
@@ -239,7 +239,7 @@ async updatePDF(
 
   @Get('portfolio/projects/:slug')
   async getProjectsByPortfolioSlug(@Param('slug') slug: string) {
-    console.log("Fetching projects for portfolio slug:", slug);
+  
     return this.candidateService.getProject(slug);
   }
 
@@ -257,9 +257,6 @@ async updateProjectById(
   @Req() req
 ) {
   const body: UpdatePortfolioDto = req.body;
-  console.log("Updating project:", projectId, "from portfolio:", slug);
-  console.log("Received body:", body);
-  console.log("Received file:", file);
 
   return this.candidateService.updateProject(
     req.user.id,
@@ -279,7 +276,7 @@ async updateProjectById(
     @Param('projectId') projectId: string,
     @Req() req
   ) {
-    console.log("Deleting project:", projectId, "from portfolio:", slug);
+ 
     return this.candidateService.deleteProject(
       req.user.id,
       slug,
@@ -298,7 +295,7 @@ async updateProjectById(
     @Req() req: any,
   ) {
     const userId = req.user.id;
-    console.log("Updating About section for portfolio:", slug, "by user:", userId);
+
     return this.candidateService.getPortfolioAbout(userId, slug);
   }
 
@@ -311,8 +308,7 @@ async updateProjectById(
     @Req() req: any,
   ) {
     const userId = req.user.id;
-    console.log(body)
-    console.log("Updating About section for portfolio:", slug, "by user:", userId);
+ 
     return this.candidateService.updateAbout(userId, slug, body);
   }
 }

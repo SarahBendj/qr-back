@@ -40,7 +40,6 @@ async deleteMyAccount(userId: string) {
   });
 
 
-  console.log(user)
 
   if (!user) throw new NotFoundException('User not found');
 
@@ -80,7 +79,7 @@ if (portfolio) {
     where: { id: userId },
   });
 
-  console.log(deletedUser)
+ 
   return true;
 }
 

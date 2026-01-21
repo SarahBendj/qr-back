@@ -76,9 +76,7 @@ if (pdfFile) {
 
   // Conversion PDF -> PNG
   const conversion = await pdfToImage(tempPdfPath, tempDir);
-  console.log(conversion )
-  console.log('=======================================pdf to png ?')
-  
+ 
   const pngPath = tempPdfPath.replace('.pdf', '.png');
   
   if (!fs.existsSync(pngPath)) {
@@ -103,7 +101,7 @@ if (pdfFile) {
   fs.unlinkSync(tempPdfPath);
   fs.unlinkSync(pngPath);
   
-  console.log("✅ CV uploaded to R2:", cvUrl);
+
 }
 
 
@@ -290,9 +288,9 @@ async updateCv(userId: string, slug: string, pdfFile?: Express.Multer.File) {
     try {
       const oldKey = candidate.cvUrl;
       await this.r2Service.deleteFile(oldKey);
-      console.log("🗑️ Old CV removed from R2");
+   
     } catch (error) {
-      console.log("⚠️ Old CV not found in R2, nothing to delete.");
+     
     }
   }
 
@@ -488,13 +486,13 @@ async updateImage(
     }
     if(candidate.imageUrl){
       const deleted = await this.r2Service.deleteFile(candidate.imageUrl)
-      console.log(deleted)
+
     }
   
 
   
     const newImagePath = await this.r2Service.uploadFile(file, "profile-picture");
-    console.log(newImagePath)
+
 
       const updatedImage = await this.prisma.candidate.update({
         where: { slug },
@@ -510,7 +508,6 @@ async updateCandidateBySlug(userId: string, slug: string, data: any) {
   if (!userId) throw new ForbiddenException();
   if (!slug) throw new BadRequestException();
 
-  console.log("Updating candidate:", slug, "with data:", data);
   const candidate = await this.prisma.candidate.findUnique({
     where: { slug },
     include: { links: true },
@@ -644,7 +641,6 @@ async createProject(
 }
 
 async getProject(slug: string) {
-  console.log("getting projects for slug:", slug);
   // 1. Check candidate
   const candidate = await this.prisma.candidate.findUnique({
     where: { slug },
@@ -692,7 +688,7 @@ async updateProject(
 
   // 3. Vérifier project existant et appartenant au portfolio
   const project = await this.prisma.project.findUnique({ where: { id: projectId } });
-  console.log(project)
+
   
   if (!project) throw new NotFoundException('Project not found');
   if (project.portfolioId !== portfolio.id)
@@ -810,9 +806,7 @@ async updateAbout(
     });
   }
 
-  console.log(data.skills)
 
-  // 2️⃣ Update soft skills
   if (data.skills) {
     const existingSkills = portfolio.softSkills.map(s => s.skill.toLowerCase());
     const incomingSkills = data.skills
@@ -831,7 +825,6 @@ async updateAbout(
 
     // Add new skills that don’t exist yet
     for (const skill of incomingSkills) {
-      console.log("Processing skill:", skill);
       if (!existingSkills.includes(skill)) {
         await this.prisma.softSkill.create({
           data: {

@@ -58,7 +58,7 @@ export class EventService {
 
     if (isPrivate) {
       accessCode = await hashing();
-      console.log(accessCode)
+
     }else {
       accessCode = null;
     }
@@ -111,7 +111,7 @@ export class EventService {
     });
 
     const qrCodeDataUrl = `data:image/png;base64,${qrBuffer.toString('base64')}`;
-    console.log('im sending this plain' , accessCode?.plain)
+  
 
     return {
       ...event,
@@ -154,12 +154,11 @@ export class EventService {
     where:  { category, slug  }, 
     include: { links: true, participants: true },
   });
-  console.log(deleted)
+ 
   return deleted
 }
 async updateEventAccessCode(url: string, code: string) {
-  // url = "category_slug"
-  console.log(url)
+
   const parts = url.split("_");
 
   if (parts.length !== 2) {
@@ -192,7 +191,7 @@ async updateImage(
     where: {   category, slug  },
     include: { links: true, participants: true },
   });
-  console.log(event)
+
 
   if (!event) {
     throw new BadRequestException("EVENT_NOT_FOUND");
@@ -220,7 +219,7 @@ if (oldImagePath) {
   await this.r2Service.deleteFile(oldImagePath)
 }
 const newImagePath = await this.r2Service.uploadFile(file,"event")
-console.log(newImagePath)
+
 
   // Update event with new image
   const updatedEvent = await this.prisma.event.update({

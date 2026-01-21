@@ -58,8 +58,7 @@ export class PdfQrController {
   @Param('url') url: string,
   @Body() data: { type: string; code: string }
 ) {
-  console.log(data)
-  console.log('vody')
+
   return this.pdfQrService.generateAccessCode(url, data.type, data.code);
 }
 

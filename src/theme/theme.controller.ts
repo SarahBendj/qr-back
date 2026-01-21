@@ -21,7 +21,7 @@ export class ThemeController {
     @Req() req,
   ) {
     const userId = req.user?.id;
-    console.log("🟦 User ID from  THEEEEEEEEEEEEME request:", userId); // Debug log
+
 
     if (!userId) {
       throw new Error("Utilisateur non connecté");

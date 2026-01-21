@@ -43,41 +43,25 @@ export class PdfQrService {
     options: QrPlacementOptions = {},
   ): Promise<Buffer> {
     try {
-      console.log('🔍 Step 1: Validation...');
-      console.log('  - pdfBuffers count:', pdfBuffers?.length);
-      console.log('  - qrText:', qrText);
-      console.log('  - options:', options);
+    
       this.validateInputs(pdfBuffers, qrText);
-      console.log('✅ Validation passed');
-
-      console.log('🔍 Step 2: Merging PDFs...');
+    
       const mergedPdf = await this.mergePdfBuffers(pdfBuffers);
-      console.log('✅ Merged PDF pages:', mergedPdf.getPageCount());
-
-      console.log('🔍 Step 3: Validating candidate...');
+     
       await this.validateCandidate(qrText);
-      console.log('✅ Candidate validated');
-
-      console.log('🔍 Step 4: Generating QR code...');
+      
       const qrPngBuffer = await this.generateQrCode(qrText);
-      console.log('✅ QR generated, size:', qrPngBuffer.length);
-
-      console.log('🔍 Step 5: Embedding QR in PDF...');
+     
       const pngImage = await mergedPdf.embedPng(qrPngBuffer);
-      console.log('✅ QR embedded');
-
-      console.log('🔍 Step 6: Adding QR to last page...');
+    
       this.addQrToLastPage(mergedPdf, pngImage, options);
-      console.log('✅ QR added to page');
-
-      console.log('🔍 Step 7: Saving PDF...');
+    
       const pdfBytes = await mergedPdf.save();
-      console.log('✅ Final PDF generated, size:', pdfBytes.length, 'bytes');
+  
 
       return Buffer.from(pdfBytes);
     } catch (error) {
-      console.error('❌ ERROR in mergePdfsWithQr:', error);
-      console.error('❌ Error stack:', error.stack);
+      
       throw error;
     }
   }
@@ -175,12 +159,7 @@ export class PdfQrService {
 
     const position = this.calculateQrPosition(pageWidth, pageHeight, options);
 
-    console.log('QR placement:', {
-      pageWidth,
-      pageHeight,
-      position,
-      options,
-    });
+
 
     lastPage.drawImage(qrImage, {
       x: position.x,

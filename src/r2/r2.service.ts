@@ -15,7 +15,7 @@ export class R2Service {
     file: Express.Multer.File,
     folder: "profile-picture" | "event" | "cv" | "portfolio" | "portfolio/projects",
   ): Promise<string> {
-    console.log(file)
+ 
     if (!file || !file.buffer) {
       throw new Error("File buffer is empty. Make sure you use Multer memory storage.");
     }
@@ -44,6 +44,6 @@ export class R2Service {
         Key: key,
       }),
     );
-    console.log(res)
+ 
   }
 }

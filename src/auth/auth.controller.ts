@@ -12,15 +12,14 @@ export class AuthController {
     @Body() dto: GoogleLoginDto,
     @Res({ passthrough: true }) res: Response
   ) {
-   console.log( 'loging' + new Date().toLocaleString());
+
 
     return this.authService.handleGoogleLogin(dto, res);
   
   }
 @Post('logout')
 logout(@Res({ passthrough: true }) res: Response , @Req() req) {
-  console.log(req.cookies);
-  console.log('descodnne')
+
   return this.authService.logoutResponse(res);
 }
 

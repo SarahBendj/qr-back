@@ -33,8 +33,7 @@ export class ApiKeyGuard implements CanActivate {
     if (!plainKey) {
       throw new UnauthorizedException('Missing API Key');
     }
-     console.log(plainKey)
-    // Construire le WHERE dynamique
+
     const where: any = {};
     for (const key of config.lookup) {
       where[key] = request.params[key];

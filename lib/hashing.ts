@@ -12,7 +12,6 @@ export async function hashing(code?: string) {
 
   // Hash du code
   const accessCode = await bcrypt.hash(accessCodePlain, 10);
-  console.log(accessCode)
 
   return {
     plain: accessCodePlain,   

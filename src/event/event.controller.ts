@@ -31,7 +31,7 @@ export class EventController {
     if (!event) {
       throw new NotFoundException('Event could not be created');
     }
-    console.log(event)
+ 
 
     return {
       url :event.qrUrl,
@@ -45,7 +45,7 @@ export class EventController {
  @UseGuards(JwtAuthGuard)
  @Patch('privacy/:slug')
   async updatePrivacy(@Req() req, @Param('slug') slug: string , @Body('isPrivate') isPrivacy: boolean ) {
-    console.log(isPrivacy)
+ 
     const userId = req.user.id;
 
     const updated = await this.eventService.changePrivacy(userId, slug , isPrivacy)
@@ -78,7 +78,7 @@ export class EventController {
    @UseGuards(JwtAuthGuard)
     @Delete(':category/:slug')
     async deleteBySlug(@Param('category') category, @Param('slug') slug: string) {
-      console.log('hnaaaaaaaaaaa')
+   
       const deleted = await this.eventService.deleteEventPageByslug(category ,slug)
       return deleted
     }
@@ -95,7 +95,7 @@ export class EventController {
 
    @UseGuards(JwtAuthGuard)
   @Patch('image/:category/:slug')
-  @UseInterceptors(FileInterceptor('file', { storage: multer.memoryStorage() }))
+  @UseInterceptors(FileInterceptor('image', { storage: multer.memoryStorage() }))
 async updateIMG(
   @Req() req,
   @Param('slug') slug: string,

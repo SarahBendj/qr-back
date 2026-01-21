@@ -105,12 +105,12 @@ res.cookie('refresh_token', refreshToken, {
 
   // --- Refresh access token endpoint ---
   async refreshToken(oldRefreshToken: string, res: Response) {
-    console.log('here')
+
     const record = await this.prisma.refreshToken.findUnique({
       where: { token: oldRefreshToken },
       include: { user: true },
     });
-console.log(record)
+
     if (!record || record.expiresAt < new Date()) {
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
@@ -120,7 +120,7 @@ console.log(record)
     await this.prisma.refreshToken.delete({ where: { token: oldRefreshToken } });
 
     const accessToken = this.generateAccessToken(record.user);
-    console.log(accessToken)
+ 
 
     // Set new cookies
     res.cookie('nest_token', accessToken, {

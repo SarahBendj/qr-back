@@ -43,7 +43,7 @@ export class StripeController {
     @Headers('stripe-signature') signature: string
   ) {
     
-    console.log('hna ?')
+    console.log('stripe ?')
     const stripe = this.stripeService.getStripeInstance();
     const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
     
