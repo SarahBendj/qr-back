@@ -5,6 +5,7 @@ import { join } from 'path';
 import * as fs from 'fs';
 import * as cookieParser from 'cookie-parser';
   import * as bodyParser from 'body-parser';
+import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 
 
 
@@ -36,6 +37,7 @@ app.use(
   app.useStaticAssets(profileDir, { prefix: '/uploads/profile-picture/' });
   app.useStaticAssets(eventDir, { prefix: '/uploads/event/' });
   app.useStaticAssets(portfolioDir, { prefix: '/uploads/portfolio/projects/'});
+    app.useGlobalInterceptors(new LoggingInterceptor());
 
   app.enableCors();
   app.set('trust proxy', true);

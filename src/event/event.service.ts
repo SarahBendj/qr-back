@@ -192,6 +192,7 @@ async updateImage(
     where: {   category, slug  },
     include: { links: true, participants: true },
   });
+  console.log(event)
 
   if (!event) {
     throw new BadRequestException("EVENT_NOT_FOUND");
@@ -219,6 +220,7 @@ if (oldImagePath) {
   await this.r2Service.deleteFile(oldImagePath)
 }
 const newImagePath = await this.r2Service.uploadFile(file,"event")
+console.log(newImagePath)
 
   // Update event with new image
   const updatedEvent = await this.prisma.event.update({
