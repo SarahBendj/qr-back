@@ -1,5 +1,5 @@
 import { IsString, IsOptional, IsArray, ValidateNested, IsBoolean } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 import { PartialType } from '@nestjs/mapped-types';
 
 
@@ -49,7 +49,23 @@ export class CreateCandidateDto {
   @IsString()
   imageUrl?: string;
 
+  /** Accepts JSON string (e.g. from form data) or array: '[{"title":"GitHub","url":"https://..."}]' or [{ title, url }] */
   @IsOptional()
+  @Transform(({ value }) => {
+    if (value == null) return value;
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+      try {
+        const parsed = JSON.parse(trimmed);
+        return Array.isArray(parsed) ? parsed : value;
+      } catch {
+        return value;
+      }
+    }
+    return value;
+  })
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LinkDto)
