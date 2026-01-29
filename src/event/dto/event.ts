@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsString, IsOptional, IsArray, ValidateNested, IsBoolean } from "class-validator";
+import { IsString, IsOptional, IsArray, ValidateNested, IsBoolean, isString, IsEmail } from "class-validator";
 
 class LinkDto {
   @IsString()
@@ -17,9 +17,21 @@ class ParticipantDto {
   role: string;
 }
 
+class InstructionDto {
+  @IsString()
+  rule: string;
+
+  
+}
+
 export class CreateEventDto {
   @IsString()
   title: string;
+
+   @IsString()
+   @IsOptional()
+   capacity : string;
+
 
   @IsString()
   description: string;
@@ -74,4 +86,27 @@ export class CreateEventDto {
   @ValidateNested({ each: true })
   @Type(() => ParticipantDto)
   participants?: ParticipantDto[];
+
+   @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => InstructionDto)
+  instructions?: InstructionDto[];
+
+  @IsOptional()
+  @IsString()
+  price : string;
+
+  @IsOptional()
+  @IsString()
+  tags ?: string | string[];
+}
+
+
+export  class JoinEventDTO {
+  @IsString()
+  fullName : string;
+  @IsEmail()
+  @IsString()
+  email : string ;
 }

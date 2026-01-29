@@ -308,7 +308,7 @@ async updateProjectById(
     @Req() req: any,
   ) {
     const userId = req.user.id;
- 
+
     return this.candidateService.updateAbout(userId, slug, body);
   }
 }

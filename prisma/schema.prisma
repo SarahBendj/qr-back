@@ -63,6 +63,8 @@ model Portfolio {
 
   projects    Project[]
   softSkills  SoftSkill[]
+  ideas       Idea[]
+  missions    Mission[]
 }
 
 
@@ -145,6 +147,64 @@ model Link {
 }
 
 //
+// COMPANY (Recruiter / Hirer)
+//
+model Company {
+  id        String   @id @default(cuid())
+  name      String
+  website   String?
+  logo      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  missions Mission[]
+}
+
+//
+// MISSION (job offers – only for candidates with a portfolio)
+//
+model Mission {
+  id              String    @id @default(cuid())
+  portfolio       Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  portfolioId     String
+  company         Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  companyId       String?
+
+  position        String
+  location        String?
+  type            String // Full-time, Part-time, Contract, etc.
+  salary          String?
+  description     String?
+  requirements    String?
+  startDate       DateTime?
+  status          String    @default("pending") // pending | accepted | rejected
+  matchScore      Int? // 0-100
+
+  recruiterName   String?
+  recruiterEmail  String?
+  recruiterPhone  String?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+//
+// IDEA (Mind Trip)
+//
+model Idea {
+  id          String     @id @default(cuid())
+  portfolio   Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
+  portfolioId String?
+
+  title       String
+  description String
+  order       Int?
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+//
 // EVENTS
 //
 model Event {
@@ -165,13 +225,25 @@ model Event {
   eventImage  String?
   duration    String?
   mapUrl      String?
+  capacity    String?
   slug        String          @unique
   accessCode  String?         @unique
 
   createdAt   DateTime        @default(now())
 
   links       EventLink[]
+  tags        String[]
+  instructions Instruction[] 
+  price       String?
   participants Participant[]
+}
+
+model Instruction {
+  id      String @id @default(cuid())
+  rule    String
+
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId String
 }
 
 //
@@ -196,13 +268,16 @@ model Participant {
   eventId   String
 
   name      String
+  confirmed Boolean @default(false)
   role      String
+  email     String?
 }
 
 model Theme {
   id             String      @id @default(cuid())
   name           String      @unique
   bg             String
+  mode           String 
   gradient       String
   text_primary   String
   text_secondary String

@@ -1,5 +1,5 @@
 import { BadGatewayException, BadRequestException, ForbiddenException, Injectable, InternalServerErrorException, NotFoundException, UnauthorizedException } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaService } from 'src/prisma/prisma.service';
 import { randomUUID } from 'crypto';
 import { CreateCandidateDto, CreatePortfolioDto, SoftSkillDto, UpdatePortfolioDto } from './dto/candidate';
 import * as QRCode from 'qrcode';
@@ -12,14 +12,13 @@ import { R2Service } from 'src/r2/r2.service';
 import { StripeService } from 'src/stripe/stripe.service';
 import { Express } from 'express';
 
-
 @Injectable()
 export class CandidateService {
   constructor(
+    private readonly prisma: PrismaService,
     private readonly r2Service: R2Service,
-    private readonly stripeService: StripeService
+    private readonly stripeService: StripeService,
   ) {}
-  private prisma = new PrismaClient();
 
   async createCandidate(userEmail : string ,userId :string ,dto: CreateCandidateDto, file?: Express.Multer.File,  pdfFile?: Express.Multer.File ) {
     
@@ -349,7 +348,7 @@ async updateCv(userId: string, slug: string, pdfFile?: Express.Multer.File) {
 }
 
 async getPortfolioBySlug(slug: string) {
-  return this.prisma.candidate.findUnique({
+  const candidate = await this.prisma.candidate.findUnique({
     where: { slug },
     include: {
       user: {
@@ -360,19 +359,63 @@ async getPortfolioBySlug(slug: string) {
           name: true,
           picture: true,
           email: true,
-          googleId : true,
+          googleId: true,
           portfolio: {
             include: {
               projects: true,
               softSkills: true,
-              theme: true
-            }
-          }
-        }
+              theme: true,
+            },
+          },
+        },
       },
-      links: true
-    }
+      links: true,
+    },
   });
+
+  if (!candidate) return null;
+
+  const user = candidate.user;
+  if (!user) {
+    return candidate;
+  }
+
+  // Global ideas (Mind Trip) + portfolio ideas + missions (only when portfolio exists).
+  // Cast for idea/mission when generated Prisma client types are stale; run `npx prisma generate` after schema changes.
+  const db = this.prisma as PrismaService & {
+    idea: { findMany: (args: { where: { portfolioId: string | null }; orderBy: unknown[] }) => Promise<unknown[]> };
+    mission: { findMany: (args: { where: { portfolioId: string } }) => Promise<unknown[]> };
+  };
+  const [globalIdeas, portfolioIdeas, portfolioMissions] = user.portfolio
+    ? await Promise.all([
+        db.idea.findMany({
+          where: { portfolioId: null },
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        }),
+        db.idea.findMany({
+          where: { portfolioId: user.portfolio.id },
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        }),
+        db.mission.findMany({
+          where: { portfolioId: user.portfolio.id },
+        }),
+      ])
+    : [ [], [], [] ];
+
+  return {
+    ...candidate,
+    user: {
+      ...user,
+      portfolio: user.portfolio
+        ? {
+            ...user.portfolio,
+            globalIdeas,
+            ideas: portfolioIdeas,
+            missions: portfolioMissions,
+          }
+        : user.portfolio,
+    },
+  };
 }
 
 

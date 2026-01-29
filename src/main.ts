@@ -1,17 +1,24 @@
 import { NestFactory } from '@nestjs/core';
+import { ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
 import * as fs from 'fs';
 import * as cookieParser from 'cookie-parser';
-  import * as bodyParser from 'body-parser';
+import * as bodyParser from 'body-parser';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
-
-
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  const port = process.env.PORT
+  const port = process.env.PORT;
+
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      forbidNonWhitelisted: false,
+      transform: true,
+    }),
+  );
 
   // Crée les dossiers si absents
   const cvDir = join(process.cwd(), 'uploads', 'cv');
@@ -41,7 +48,7 @@ app.use(
 
   app.enableCors();
   app.set('trust proxy', true);
-  await app.listen(port ||5000);
+  await app.listen(port || 5000);
 
 }
 bootstrap();
