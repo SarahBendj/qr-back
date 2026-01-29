@@ -41,14 +41,30 @@ export class CandidateService {
     const slug = randomUUID().slice(0, 22);
 
 
-    let links: any[] = [];
+    let links: { title: string; url: string }[] = [];
+
     if (dto.links) {
       try {
-        links = typeof dto.links === 'string' ? JSON.parse(dto.links) : dto.links;
-      } catch (error) {
-        console.error('Erreur de parsing des liens:', error);
+        const parsed =
+          typeof dto.links === 'string'
+            ? JSON.parse(dto.links)
+            : dto.links;
+    
+        if (Array.isArray(parsed)) {
+          links = parsed;
+        }
+      } catch (e) {
+        throw new BadRequestException('Invalid links format');
       }
     }
+    links = links.filter(
+      (l) =>
+        typeof l?.title === 'string' &&
+        l.title.trim().length > 0 &&
+        typeof l?.url === 'string' &&
+        l.url.trim().length > 0
+    );
+    console.log(links)
 
   const uploadDir = path.join(process.cwd(), 'public', 'uploads', userId);
 if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
@@ -136,7 +152,9 @@ const candidate = await this.prisma.candidate.create({
     user: {
       connect: { id: userId },
     },
-    links: { create: links || [] },
+    ...(links.length > 0 && {
+      links: { create: links },
+    }),
   },
 
   include: { links: true },
