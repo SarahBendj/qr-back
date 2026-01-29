@@ -37,10 +37,13 @@ export class EventController {
     @Body() dto: CreateEventDto,
     @Req() req,
   ) {
+    console.log("create event");
+    console.log(req.user);
     if (!req.user?.id) {
       throw new NotFoundException('User not found in request');
     }
 
+    console.log(dto);
     const event = await this.eventService.createEvent(req.user.id, dto, file);
 
     if (!event) {

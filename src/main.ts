@@ -1,5 +1,5 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, BadRequestException } from '@nestjs/common';
 import { AppModule } from './app.module';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { join } from 'path';
@@ -17,6 +17,17 @@ async function bootstrap() {
       whitelist: true,
       forbidNonWhitelisted: false,
       transform: true,
+      exceptionFactory: (errors) => {
+        const message = errors.map((e) => Object.values(e.constraints ?? {}).join('; ')).join(' | ');
+        console.error('[ValidationPipe] Bad Request:', message, errors);
+        return new BadRequestException({
+          message: 'Validation failed',
+          errors: errors.map((e) => ({
+            property: e.property,
+            constraints: e.constraints,
+          })),
+        });
+      },
     }),
   );
 

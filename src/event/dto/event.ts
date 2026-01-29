@@ -1,5 +1,5 @@
 import { Type } from "class-transformer";
-import { IsString, IsOptional, IsArray, ValidateNested, IsBoolean, isString, IsEmail } from "class-validator";
+import { IsString, IsOptional, IsArray, ValidateNested, IsBoolean, isString, IsEmail, IsNumber } from "class-validator";
 
 class LinkDto {
   @IsString()
@@ -28,10 +28,10 @@ export class CreateEventDto {
   @IsString()
   title: string;
 
-   @IsString()
-   @IsOptional()
-   capacity : string;
-
+  @IsOptional()
+  @IsNumber()
+  @Type(() => Number)
+  capacity?: number;
 
   @IsString()
   description: string;
@@ -42,16 +42,16 @@ export class CreateEventDto {
   @IsString()
   location: string;
 
-  @IsString()
+  @IsDateString()
   date: string;
 
   @IsOptional()
   @IsString()
-  duration : string;
+  duration?: string;
 
   @IsOptional()
   @IsString()
-  accessCode : string;
+  accessCode?: string;
 
   @IsString()
   time: string;
@@ -59,21 +59,25 @@ export class CreateEventDto {
   @IsString()
   contact: string;
 
+  @IsOptional()
   @IsString()
-  visibility: string = "public";
+  visibility?: string;
 
   @IsOptional()
   @IsBoolean()
-  isPrivate: boolean;
+  isPrivate?: boolean;
 
   @IsOptional()
-  eventImage?: string | null;
+  @IsString()
+  eventImage?: string;
 
   @IsOptional()
-  mapUrl?: string | null;
+  @IsString()
+  mapUrl?: string;
 
   @IsOptional()
-  pageUrl?: string | null;
+  @IsString()
+  pageUrl?: string;
 
   @IsOptional()
   @IsArray()
@@ -87,19 +91,21 @@ export class CreateEventDto {
   @Type(() => ParticipantDto)
   participants?: ParticipantDto[];
 
-   @IsOptional()
+  @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => InstructionDto)
   instructions?: InstructionDto[];
 
   @IsOptional()
-  @IsString()
-  price : string;
+  @IsNumber()
+  @Type(() => Number)
+  price?: number;
 
   @IsOptional()
-  @IsString()
-  tags ?: string | string[];
+  @IsArray()
+  @IsString({ each: true })
+  tags?: string[];
 }
 
 
