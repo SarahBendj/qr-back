@@ -68,7 +68,7 @@ export class EventService {
         throw new BadRequestException('INVALID_JSON_instructions');
       }
     }
-   let isPrivate = dto.isPrivate.toString() === "true";
+   let isPrivate = dto.isPrivate?.toString() === "true";
 
     if (isPrivate) {
       accessCode = await hashing();
@@ -87,7 +87,7 @@ export class EventService {
    const tagsArray: string[] = Array.isArray(dto.tags)
   ? dto.tags
   : typeof dto.tags === 'string'
-    ? dto.tags.split(',').map(t => t.trim()).filter(Boolean)
+    ? (dto.tags as string).split(',').map(t => t.trim()).filter(Boolean)
     : [];
 
 
@@ -98,8 +98,8 @@ export class EventService {
         description: dto.description,
         location: dto.location,
         category: category,
-        capacity : dto.capacity,
-        price : dto.price,
+        capacity: dto.capacity != null ? String(dto.capacity) : null,
+        price: dto.price != null ? String(dto.price) : null,
         date: dto.date ? new Date(dto.date) : undefined,
         time: dto.time,
         duration: dto.duration ?? null,
@@ -311,7 +311,7 @@ async updateEvent(userId: string, category : string ,slug: string, dto: Partial<
   const tagsArray: string[] = Array.isArray(dto.tags)
     ? dto.tags
     : typeof dto.tags === 'string'
-      ? dto.tags.split(',').map((t) => t.trim()).filter(Boolean)
+      ? (dto.tags as string).split(',').map((t) => t.trim()).filter(Boolean)
       : [];
 
   // -------------------- Update Event --------------------
@@ -322,8 +322,8 @@ async updateEvent(userId: string, category : string ,slug: string, dto: Partial<
       description: dto.description ?? event.description,
       location: dto.location ?? event.location,
       category: dto.category ?? event.category,
-      capacity: dto.capacity ?? event.capacity,
-      price: dto.price ?? event.price,
+      capacity: dto.capacity !== undefined ? (dto.capacity == null ? null : String(dto.capacity)) : event.capacity,
+      price: dto.price !== undefined ? (dto.price == null ? null : String(dto.price)) : (event.price ?? null),
       date: dto.date ? new Date(dto.date) : event.date,
       time: dto.time ?? event.time,
       duration: dto.duration ?? event.duration,
