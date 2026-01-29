@@ -42,7 +42,7 @@ export class CreateEventDto {
   @IsString()
   location: string;
 
-  @IsDateString()
+  @IsString()
   date: string;
 
   @IsOptional()
