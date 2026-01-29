@@ -88,8 +88,8 @@ export class EventService {
   ? dto.tags
   : typeof dto.tags === 'string'
     ? (dto.tags as string).split(',').map(t => t.trim()).filter(Boolean)
-    : [];
-
+    : []; 
+    console.log(tagsArray)
 
     // -------------------- Create Event --------------------
     const event = await this.prisma.event.create({
