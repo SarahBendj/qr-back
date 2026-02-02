@@ -13,6 +13,8 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
+import { CallHandler, ExecutionContext, NestInterceptor } from '@nestjs/common';
+import { Observable } from 'rxjs';
 import * as multer from 'multer';
 import { extname } from 'path';
 import { EventService } from './event.service';
@@ -24,6 +26,16 @@ import { Express } from 'express';
 
 import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
+/** Logs req.body before ValidationPipe runs (so we see payload even when validation fails). */
+const LogCreateBodyInterceptor: NestInterceptor = {
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const req = context.switchToHttp().getRequest();
+    console.log('[POST /event] Content-Type:', req.headers['content-type']);
+    console.log('[POST /event] req.body:', JSON.stringify(req.body, null, 2));
+    return next.handle();
+  },
+};
+
 @Controller('event')
 export class EventController {
   constructor(private readonly eventService: EventService) {}
@@ -31,19 +43,23 @@ export class EventController {
   @Post()
   @UseInterceptors(
     FileInterceptor('image', { storage: multer.memoryStorage() }),
+    LogCreateBodyInterceptor,
   )
   async create(
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: CreateEventDto,
     @Req() req,
   ) {
-    console.log("create event");
-    console.log(req.user);
     if (!req.user?.id) {
       throw new NotFoundException('User not found in request');
     }
 
-    console.log(dto);
+    // Debug: raw body and content-type (multipart form fields vs JSON)
+    console.log('Content-Type:', req.headers['content-type']);
+    console.log('req.body (raw):', JSON.stringify(req.body, null, 2));
+    console.log('dto (after validation):', dto);
+    console.log('file:', file ? { fieldname: file.fieldname, size: file.size, mimetype: file.mimetype } : null);
+
     const event = await this.eventService.createEvent(req.user.id, dto, file);
 
     if (!event) {
