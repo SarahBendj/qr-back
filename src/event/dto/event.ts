@@ -103,9 +103,8 @@ export class CreateEventDto {
   price?: number;
 
   @IsOptional()
-  @IsArray()
-  @IsString({ each: true })
-  tags?: string[];
+  @IsString()
+  tags?: string;
 }
 
 
