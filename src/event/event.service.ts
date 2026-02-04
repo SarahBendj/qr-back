@@ -388,7 +388,7 @@ async joinEvent(category : string ,slug: string, dto: JoinEventDTO) {
     if(updated) {
  // 4️⃣ Send confirmation email
   if (updated) {
-    const confirmUrl = `https://smart-qr.pro/smart-event/confirm?category=${category}&slug=${slug}&email=${dto.email}`;
+    const confirmUrl = `https://smart-qr.pro/smart-event/confirm/${category}/${slug}/${dto.email}`;
     await this.mailService.confirmEventJoin(
       dto.email,
       dto.fullName,
