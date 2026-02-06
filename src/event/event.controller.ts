@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Req,
   UploadedFile,
   UseGuards,
@@ -174,11 +175,14 @@ export class EventController {
     @Param('slug') slug: string,
     @Param('category') category: string,
     @Param('email') email: string,
+    @Query('confirm') confirm: string,
   ) {
+    const confirmBool = confirm === 'true';
     const updated = await this.eventService.confirmJoiningEvent(
       category,
       slug,
       email,
+      confirmBool,
     );
     return updated;
   }

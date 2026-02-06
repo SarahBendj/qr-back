@@ -37,6 +37,10 @@ export class CreateCandidateDto {
   bio?: string;
 
   @IsOptional()
+  @IsString()
+  nindo?: string;
+
+  @IsOptional()
   @IsBoolean()
   isPrivate: boolean;
 

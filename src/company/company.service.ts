@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import {
   Injectable,
   NotFoundException,
@@ -7,10 +8,15 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateMissionDto } from './dto/create-mission.dto';
 import { UpdateMissionDto } from './dto/update-mission.dto';
+import { CancelMissionByRecruiterDto } from './dto/cancel-mission-by-recruiter.dto';
+import { SmartQRUserMailing } from 'lib/mail/send.mail';
 
 @Injectable()
 export class CompanyService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mailService: SmartQRUserMailing,
+  ) {}
 
   /** Cast for mission/company delegates when generated client types are stale */
   private get db() {
@@ -55,7 +61,7 @@ export class CompanyService {
     }
 
     return this.db.mission.findMany({
-      where: { portfolioId: portfolio.id },
+      where: { portfolioId: portfolio.id, emailConfirmed: true },
       include: { company: true },
       orderBy: { createdAt: 'desc' },
     });
@@ -111,7 +117,9 @@ export class CompanyService {
       ? new Date(dto.startDate)
       : undefined;
 
-    const mission = await this.db.mission.create({
+    const recruiterCancelToken = randomBytes(24).toString('hex');
+
+    const mission = await this.prisma.mission.create({
       data: {
         portfolioId: portfolio.id,
         companyId: company.id,
@@ -124,18 +132,133 @@ export class CompanyService {
         recruiterName: dto.recruiterName,
         recruiterEmail: dto.email,
         recruiterPhone: dto.phone ?? undefined,
-      },
+        recruiterCancelToken,
+      } as any,
       include: {
         company: true,
       },
     });
 
+    const baseUrl = process.env.FRONTEND_URL ?? 'https://smart-qr.pro';
+    const cancelUrl = `${baseUrl}/smart-profile/cancel-mission?token=${recruiterCancelToken}`;
+
+    const missionWithCompany = mission as typeof mission & { company?: { name: string } | null };
+    await this.mailService.confirmMissionProposal(
+      dto.email,
+      dto.recruiterName,
+      missionWithCompany.position,
+      missionWithCompany.company?.name ?? '',
+      cancelUrl,
+    );
+
     return mission;
+  }
+
+  /**
+   * Recruiter cancels their mission via email link (no login).
+   * Token is sent in the confirmation email. Optionally provide a justification;
+   * the candidate receives a notification with it.
+   */
+  async deleteMissionByRecruiterToken(dto: CancelMissionByRecruiterDto) {
+    type MissionWithRelations = Awaited<
+      ReturnType<PrismaService['mission']['findUnique']>
+    > & {
+      portfolio: { userId: string };
+      company: { name: string } | null;
+    };
+    const mission = (await this.prisma.mission.findUnique({
+      where: { recruiterCancelToken: dto.token } as any,
+      include: {
+        portfolio: { include: { user: true } },
+        company: true,
+      },
+    })) as MissionWithRelations | null;
+
+    if (!mission) {
+      throw new NotFoundException('Mission not found or link expired');
+    }
+
+    const candidateUserId = mission.portfolio.userId;
+    const position = mission.position;
+    const companyName = mission.company?.name ?? 'Unknown company';
+    const recruiterName = mission.recruiterName ?? 'The recruiter';
+
+    await (this.prisma as unknown as { notification: { create: (args: unknown) => Promise<unknown> } }).notification.create({
+      data: {
+        userId: candidateUserId,
+        type: 'mission_cancelled',
+        title: 'Mission proposal withdrawn',
+        message: `${recruiterName} has withdrawn their mission proposal for "${position}" at ${companyName}.`,
+        justification: dto.justification?.trim() || undefined,
+        missionId: mission.id,
+      },
+    });
+
+    await this.prisma.mission.delete({
+      where: { id: mission.id },
+    });
+
+    return {
+      message: 'Mission withdrawn successfully. The candidate has been notified.',
+    };
   }
 
   /**
    * Update a mission (accept/reject). Authenticated owner only.
    */
+  async getMissionByRecruiterToken(token: string) {
+    const mission = await this.prisma.mission.findUnique({
+      where: { recruiterCancelToken: token } as any,
+      include: {
+        portfolio: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                candidate: {
+                  select: {
+                    firstname: true,
+                    lastname: true,
+                    slug: true,
+                    cvUrl: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        company: {
+          select: { name: true },
+        },
+      },
+    });
+
+    if (!mission) {
+      throw new NotFoundException('Mission not found or link expired');
+    }
+
+    const user = (mission.portfolio as { user: { id: string; name: string | null; email: string; candidate: { firstname: string; lastname: string; slug: string; cvUrl: string | null } | null } }).user;
+    const candidate = user.candidate;
+    const baseUrl = process.env.FRONTEND_URL ?? 'https://smart-qr.pro';
+
+    return {
+      missionId: mission.id,
+      position: mission.position,
+      recruiterName: mission.recruiterName,
+      companyName: (mission.company as { name: string } | null)?.name ?? 'Unknown company',
+      candidate: {
+        id: user.id,
+        name: candidate ? `${candidate.firstname} ${candidate.lastname}` : user.name ?? 'Candidate',
+        email: user.email,
+        profileLink: candidate ? `${baseUrl}/smart-profile/portfolio/${candidate.slug}` : null,
+        resumeUrl: candidate?.cvUrl ?? null,
+      },
+      createdAt: mission.createdAt,
+    };
+  }
+  
   async updateMission(
     slug: string,
     missionId: string,

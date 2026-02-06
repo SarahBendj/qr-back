@@ -45,21 +45,31 @@ async function bootstrap() {
   // Expose statiquement
   app.use(cookieParser());
 
-
-app.use(
-  '/stripe/webhook',
-  bodyParser.raw({ type: 'application/json' }),
-);
+  app.use(
+    '/stripe/webhook',
+    bodyParser.raw({ type: 'application/json' }),
+  );
 
   app.useStaticAssets(cvDir, { prefix: '/uploads/cv/' });
   app.useStaticAssets(profileDir, { prefix: '/uploads/profile-picture/' });
   app.useStaticAssets(eventDir, { prefix: '/uploads/event/' });
   app.useStaticAssets(portfolioDir, { prefix: '/uploads/portfolio/projects/'});
-    app.useGlobalInterceptors(new LoggingInterceptor());
+  app.useGlobalInterceptors(new LoggingInterceptor());
 
-  app.enableCors();
+// main.ts
+app.enableCors({
+  origin: ['http://localhost:3001', 'https://smart-qr.pro', 'smart-qr.pro'],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type', 
+    'Authorization', 
+    'Accept',
+    'ngrok-skip-browser-warning' 
+  ],
+});
+
   app.set('trust proxy', true);
   await app.listen(port || 5000);
-
 }
 bootstrap();

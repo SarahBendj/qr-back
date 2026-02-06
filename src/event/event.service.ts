@@ -388,12 +388,14 @@ async joinEvent(category : string ,slug: string, dto: JoinEventDTO) {
     if(updated) {
  // 4️⃣ Send confirmation email
   if (updated) {
-    const confirmUrl = `https://smart-qr.pro/smart-event/confirm/${category}/${slug}/${dto.email}`;
+    const confirmUrl = `https://smart-qr.pro/smart-event/confirm/${category}/${slug}/${dto.email}/${true}`;
+    const declineUrl = `https://smart-qr.pro/smart-event/confirm/${category}/${slug}/${dto.email}/${false}`;
     await this.mailService.confirmEventJoin(
       dto.email,
       dto.fullName,
       event.title,
-      confirmUrl
+      confirmUrl,
+      declineUrl,
     );
   }
     }
@@ -402,10 +404,14 @@ async joinEvent(category : string ,slug: string, dto: JoinEventDTO) {
 }
 
 
-async confirmJoiningEvent( category : string ,slug: string , email : string
+async confirmJoiningEvent(
+  category: string,
+  slug: string,
+  email: string,
+  confirm: boolean,
 ) {
   const event = await this.prisma.event.findUnique({
-    where: {  category ,slug },
+    where: { category, slug },
     include: { participants: true },
   });
 
@@ -418,19 +424,21 @@ async confirmJoiningEvent( category : string ,slug: string , email : string
   if (!participant) {
     throw new BadRequestException("PARTICIPANT_NOT_FOUND");
   }
-  //* ALGREDY CONFIRMED
-  const email_confirmed = participant.confirmed
-  if (email_confirmed){
-    throw new BadGatewayException("ALREADY_CONFIRMED")
+
+  // When confirming: reject if already confirmed
+  if (confirm && participant.confirmed) {
+    throw new BadGatewayException("ALREADY_CONFIRMED");
   }
-  // 3️⃣ Mark as confirmed (add a `confirmed` field in Participant model)
+
   const updated = await this.prisma.participant.update({
     where: { id: participant.id },
-    data: { confirmed: true },
+    data: { confirmed: confirm },
   });
 
   return {
-    message: "Your registration has been confirmed!",
+    message: confirm
+      ? "Your registration has been confirmed!"
+      : "You have declined / left the event.",
     participant: updated,
   };
 }

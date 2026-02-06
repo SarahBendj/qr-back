@@ -1,10 +1,16 @@
-export const joinEvent = (name: string,  eventTitle: string,confirmUrl: string, declineUrl: string) => `
+export const confirmOrRevokeMissionProposal = (
+  recruiterName: string,
+  position: string,
+  companyName: string,
+  cancelUrl?: string,
+) => `
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Confirm your Event Registration</title>
+  <meta name="color-scheme" content="light dark" />
+  <title>Mission proposal received</title>
   <link href="https://fonts.googleapis.com/css2?family=Lexend:wght@400;600;700&display=swap" rel="stylesheet">
   <style>
     body, table, td, a { font-family: 'Lexend', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; }
@@ -29,7 +35,7 @@ export const joinEvent = (name: string,  eventTitle: string,confirmUrl: string, 
           <!-- Logo -->
           <tr>
             <td style="padding: 32px 32px 24px 32px; text-align: center;">
-              <img 
+              <img
                 class="logo-filter"
                 src="${process.env.R2_DISPLAY_PUBLIC_URL}/smartQR/logo/logo.png"
                 alt="SmartQR Logo"
@@ -44,59 +50,46 @@ export const joinEvent = (name: string,  eventTitle: string,confirmUrl: string, 
           <tr>
             <td style="padding: 0 32px 32px 32px;">
               <h1 class="text-primary" style="margin:0 0 16px 0; font-size:24px; font-weight:700;">
-                Hello, ${name}
+                Hello, ${recruiterName}
               </h1>
 
-              <p class="text-secondary" style="margin:0 0 24px 0; font-size:15px; line-height:1.6;">
-                You’ve registered for the event: <strong>${eventTitle}</strong>.
-                Please confirm your participation by clicking the button below.
+              <p class="text-secondary" style="margin:0 0 16px 0; font-size:15px; line-height:1.6;">
+                We have received your mission proposal for <strong class="text-primary">${position}</strong> at <strong class="text-primary">${companyName}</strong>.
               </p>
 
-              <!-- CTA Button -->
-              <table width="100%" cellpadding="0" cellspacing="0">
-                <tr>
-                  <td align="center" style="padding:8px 0 24px 0;">
-                    <a href="${confirmUrl}" 
-                       style="
-                         display:inline-block;
-                         background-color:#3b82f6;
-                         color:#ffffff;
-                         padding:12px 32px;
-                         border-radius:8px;
-                         text-decoration:none;
-                         font-weight:600;
-                         font-size:15px;
-                         font-family:'Lexend', sans-serif;
-                       ">
-                      Confirm My Spot
-                    </a>
-                  </td>
-                </tr>
-              </table>
+              <p class="text-secondary" style="margin:0 0 24px 0; font-size:15px; line-height:1.6;">
+                The candidate will review it and get back to you.
+              </p>
 
+              ${cancelUrl ? `
+              <p class="text-secondary" style="margin:0 0 16px 0; font-size:14px; line-height:1.5;">
+                Changed your mind? You can withdraw this proposal at any time (no login required).
+              </p>
               <table width="100%" cellpadding="0" cellspacing="0">
                 <tr>
-                  <td align="center" style="padding:8px 0 24px 0;">
-                    <a href="${declineUrl}" 
+                  <td style="padding:8px 0 24px 0;">
+                    <a href="${cancelUrl}"
                        style="
                          display:inline-block;
-                         background-color:#3b82f6;
-                         color:#ffffff;
+                         background-color:transparent;
+                         color:#64748b;
                          padding:12px 32px;
                          border-radius:8px;
+                         border:1px solid #e2e8f0;
                          text-decoration:none;
                          font-weight:600;
                          font-size:15px;
                          font-family:'Lexend', sans-serif;
                        ">
-                      Decline My Spot
+                      Withdraw this proposal
                     </a>
                   </td>
                 </tr>
               </table>
+              ` : ''}
 
               <p class="text-secondary" style="margin:0; font-size:13px; line-height:1.5;">
-                If you didn’t register for this event, you can safely ignore this email.
+                Best regards,<br/>The SmartQR Team
               </p>
             </td>
           </tr>

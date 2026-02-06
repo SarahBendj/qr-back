@@ -36,12 +36,13 @@ model User {
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
-  smartQrs     SmartQR[]
-  candidate   Candidate?
-  events       Event[]
-  refreshTokens RefreshToken[] 
-  payment       Payment[]
-  portfolio    Portfolio?     // <-- RELATION INVERSE
+  smartQrs       SmartQR[]
+  candidate      Candidate?
+  events         Event[]
+  refreshTokens  RefreshToken[]
+  payment        Payment[]
+  portfolio      Portfolio?
+  notifications  Notification[]
 }
 
 model Portfolio {
@@ -180,12 +181,30 @@ model Mission {
   status          String    @default("pending") // pending | accepted | rejected
   matchScore      Int? // 0-100
 
-  recruiterName   String?
-  recruiterEmail  String?
-  recruiterPhone  String?
+  recruiterName       String?
+  recruiterEmail      String?
+  recruiterPhone      String?
+  emailConfirmed      Boolean   @default(false)
+  recruiterCancelToken String?  @unique
 
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+}
+
+//
+// NOTIFICATION (for candidate when recruiter cancels mission, etc.)
+//
+model Notification {
+  id           String   @id @default(cuid())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId       String
+  type         String   // e.g. "mission_cancelled"
+  title        String
+  message      String
+  justification String?
+  missionId    String?
+  read         Boolean  @default(false)
+  createdAt    DateTime @default(now())
 }
 
 //

@@ -1,8 +1,9 @@
-import { Controller, Post, Get, Body, Param, UseGuards, Req, Patch, Delete } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, UseGuards, Req, Patch, Delete } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { CompanyService } from './company.service';
 import { CreateMissionDto } from './dto/create-mission.dto';
 import { UpdateMissionDto } from './dto/update-mission.dto';
+import { CancelMissionByRecruiterDto } from './dto/cancel-mission-by-recruiter.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 
 @Controller('company')
@@ -22,6 +23,26 @@ export class CompanyController {
   }
 
   /**
+   * Recruiter views their mission by token (from email link). No login.
+   * Returns mission summary + candidate profile link + resume URL.
+   */
+  @Throttle({ default: { limit: 30, ttl: 60000 } })
+  @Get('mission/by-token')
+  async getMissionByToken(@Query('token') token: string) {
+    return this.companyService.getMissionByRecruiterToken(token);
+  }
+
+  /**
+   * Recruiter withdraws their mission via link from email (no login).
+   * Body: { token, justification? }. Candidate receives a notification with optional justification.
+   */
+  @Throttle({ default: { limit: 20, ttl: 60000 } })
+  @Post('mission/cancel-by-email')
+  async cancelMissionByRecruiter(@Body() dto: CancelMissionByRecruiterDto) {
+    return this.companyService.deleteMissionByRecruiterToken(dto);
+  }
+
+  /**
    * Submit recruiter proposal (company + mission) for a candidate's portfolio.
    * Public; rate-limited to reduce spam.
    */
@@ -31,6 +52,7 @@ export class CompanyController {
     @Param('slug') slug: string,
     @Body() dto: CreateMissionDto,
   ) {
+    console.log(dto);
     return this.companyService.createMissionFromProposal(slug, dto);
   }
 
