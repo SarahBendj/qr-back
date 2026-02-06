@@ -4,6 +4,7 @@ import { AuthController } from './auth.controller';
 import { PrismaModule } from '../prisma/prisma.module';
 import { JwtModule } from '@nestjs/jwt';
 import { JwtStrategy } from './jwt.strategy';
+import { JwtAuthGuard } from './jwt-auth.guard';
 import { SmartQRUserMailing } from 'lib/mail/send.mail';
 
 @Module({
@@ -15,7 +16,7 @@ import { SmartQRUserMailing } from 'lib/mail/send.mail';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy ,SmartQRUserMailing],
-  exports: [AuthService],
+  providers: [AuthService, JwtStrategy, JwtAuthGuard, SmartQRUserMailing],
+  exports: [AuthService, JwtAuthGuard],
 })
 export class AuthModule {}
