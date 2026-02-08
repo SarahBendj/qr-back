@@ -126,8 +126,11 @@ export class CandidateController {
 async updateIMG(
   @Req() req,
   @Param('slug') slug: string,
-  @UploadedFile() file: Express.Multer.File, // now this works
+  @UploadedFile() file: Express.Multer.File, 
 ) {
+  console.log(file)
+  //*only wanna debug file
+  console.log("file debbugging", file)
   return this.candidateService.updateImage(req.user.id, slug, file);
 }
 
