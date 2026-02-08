@@ -78,6 +78,28 @@ export class CandidateController {
     }
 
 
+    @UseGuards(JwtAuthGuard)
+    @Patch('image/:slug')
+    @UseInterceptors(
+      FileInterceptor('file', {
+        storage: multer.memoryStorage(),
+      }),
+    )
+    async updateIMG(
+      @Req() req,
+      @Param('slug') slug: string,
+      @UploadedFile() file: Express.Multer.File, 
+    ) {
+      console.log(file)
+      //*only wanna debug file
+      console.log("file debbugging", file)
+      return this.candidateService.updateImage(req.user.id, slug, file);
+    }
+    
+
+
+
+
   @Get(':slug')
   async getBySlug(@Param('slug') slug: string) {
     const candidate = await this.candidateService.getCandidateBySlug(slug);
@@ -116,23 +138,6 @@ export class CandidateController {
   //  UPDATE CANDIDATE IMAGE
   // ============================================================
 
-@UseGuards(JwtAuthGuard)
-@Patch('image/:slug')
-@UseInterceptors(
-  FileInterceptor('file', {
-    storage: multer.memoryStorage(),
-  }),
-)
-async updateIMG(
-  @Req() req,
-  @Param('slug') slug: string,
-  @UploadedFile() file: Express.Multer.File, 
-) {
-  console.log(file)
-  //*only wanna debug file
-  console.log("file debbugging", file)
-  return this.candidateService.updateImage(req.user.id, slug, file);
-}
 
 @UseGuards(JwtAuthGuard)
 @Patch('cv/:slug')
