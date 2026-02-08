@@ -30,7 +30,7 @@ import { Express } from 'express';
 @Throttle({ default: { limit: 5, ttl:  60000 } })
 @Controller('candidate')
 export class CandidateController {
-  private readonly logger = new Logger(CandidateController.name);
+private readonly logger = new Logger(CandidateController.name);
 
   constructor(private readonly candidateService: CandidateService) {}
 
@@ -66,6 +66,7 @@ export class CandidateController {
     };
   }
 
+
   @UseGuards(JwtAuthGuard)
   @Get('/assign-portfolio')
     async upgradePlan(@Req() req){
@@ -84,7 +85,7 @@ export class CandidateController {
     @UseGuards(JwtAuthGuard)
     @Patch('image/:slug')
     @UseInterceptors(
-      FileInterceptor('file', {
+      FileInterceptor('image', {
         storage: multer.memoryStorage(),
       }),
     )
@@ -98,7 +99,7 @@ export class CandidateController {
       this.logger.debug(
         file
           ? { fieldname: file.fieldname, size: file.size, mimetype: file.mimetype }
-          : 'file is undefined (check form field name is "file" and Content-Type is multipart/form-data)',
+          : 'file is undefined (check form field name is "image" and Content-Type is multipart/form-data)',
       );
       return this.candidateService.updateImage(req.user.id, slug, file);
     }
@@ -126,6 +127,9 @@ export class CandidateController {
     const userId = req.user.id
     return this.candidateService.deleteCandidatePageByslug(userId,slug);
   }
+
+
+
 
   // ============================================================
   //  PRIVACY SETTINGS
