@@ -58,7 +58,7 @@ async function bootstrap() {
 
 // main.ts
 app.enableCors({
-  origin: ['http://localhost:3001', 'https://smart-qr.pro', 'smart-qr.pro'],
+  origin: ['http://localhost:3001', 'https://smart-qr.pro',  'https://www.smart-qr.pro'],
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [
