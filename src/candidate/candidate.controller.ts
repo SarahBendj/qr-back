@@ -12,6 +12,7 @@ import {
   Patch,
   UploadedFiles,
   UnauthorizedException,
+  Logger,
 } from '@nestjs/common';
 
 import { AnyFilesInterceptor, FileInterceptor } from '@nestjs/platform-express';
@@ -29,6 +30,8 @@ import { Express } from 'express';
 @Throttle({ default: { limit: 5, ttl:  60000 } })
 @Controller('candidate')
 export class CandidateController {
+private readonly logger = new Logger(CandidateController.name);
+
   constructor(private readonly candidateService: CandidateService) {}
 
   // ============================================================
@@ -63,6 +66,7 @@ export class CandidateController {
     };
   }
 
+
   @UseGuards(JwtAuthGuard)
   @Get('/assign-portfolio')
     async upgradePlan(@Req() req){
@@ -76,6 +80,32 @@ export class CandidateController {
       
 
     }
+
+
+    @UseGuards(JwtAuthGuard)
+    @Patch('image/:slug')
+    @UseInterceptors(
+      FileInterceptor('image', {
+        storage: multer.memoryStorage(),
+      }),
+    )
+    async updateIMG(
+      @Req() req,
+      @Param('slug') slug: string,
+      @UploadedFile() file: Express.Multer.File,
+    ) {
+      // Logs appear in the server terminal (where you run npm run start:dev), not in the browser
+      this.logger.log(`updateIMG called – slug=${slug}`);
+      this.logger.debug(
+        file
+          ? { fieldname: file.fieldname, size: file.size, mimetype: file.mimetype }
+          : 'file is undefined (check form field name is "image" and Content-Type is multipart/form-data)',
+      );
+      return this.candidateService.updateImage(req.user.id, slug, file);
+    }
+    
+
+
 
 
   @Get(':slug')
@@ -98,6 +128,9 @@ export class CandidateController {
     return this.candidateService.deleteCandidatePageByslug(userId,slug);
   }
 
+
+
+
   // ============================================================
   //  PRIVACY SETTINGS
   // ============================================================
@@ -116,20 +149,6 @@ export class CandidateController {
   //  UPDATE CANDIDATE IMAGE
   // ============================================================
 
-@UseGuards(JwtAuthGuard)
-@Patch('image/:slug')
-@UseInterceptors(
-  FileInterceptor('file', {
-    storage: multer.memoryStorage(),
-  }),
-)
-async updateIMG(
-  @Req() req,
-  @Param('slug') slug: string,
-  @UploadedFile() file: Express.Multer.File, // now this works
-) {
-  return this.candidateService.updateImage(req.user.id, slug, file);
-}
 
 @UseGuards(JwtAuthGuard)
 @Patch('cv/:slug')
@@ -308,7 +327,7 @@ async updateProjectById(
     @Req() req: any,
   ) {
     const userId = req.user.id;
- 
+
     return this.candidateService.updateAbout(userId, slug, body);
   }
 }
