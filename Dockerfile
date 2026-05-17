@@ -46,6 +46,7 @@ COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/prisma ./prisma
 COPY --from=builder /app/scripts/db-deploy-prod.js ./scripts/db-deploy-prod.js
 COPY --from=builder /app/prisma/seed.js ./prisma/seed.js
+COPY --from=builder /app/lib/pdf/fonts ./dist/lib/pdf/fonts
 
 # Expose port
 EXPOSE 5000

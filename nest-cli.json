@@ -6,8 +6,8 @@
     "deleteOutDir": false,
     "assets": [
       {
-        "include": "../lib/pdf/fonts/**/*",
-        "outDir": "dist/lib/pdf",
+        "include": "../lib/pdf/fonts/*.ttf",
+        "outDir": "dist/lib/pdf/fonts",
         "watchAssets": true
       }
     ]

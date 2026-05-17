@@ -64,4 +64,25 @@ describe('profil.mapper', () => {
     expect(result.candidate?.slug).toBe('abc123');
     expect(result.candidates).toHaveLength(1);
   });
+
+  it('hides plan tier until payment is confirmed', () => {
+    const result = mapProfilResponse(
+      {
+        id: 'u1',
+        name: 'Test',
+        email: 'a@b.com',
+        picture: null,
+        role: 'user',
+        plan: 'GROWTH',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        events: [],
+        smartQrs: [],
+      },
+      { planPaid: false, planActive: false },
+    );
+
+    expect(result.plan).toBeNull();
+    expect(result.planPaid).toBe(false);
+  });
 });

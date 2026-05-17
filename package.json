@@ -6,7 +6,7 @@
   "private": true,
   "license": "UNLICENSED",
   "scripts": {
-    "build": "nest build && node scripts/ensure-dist-entry.js",
+    "build": "nest build && node scripts/ensure-dist-entry.js && node scripts/copy-pdf-fonts.js",
     "prisma:prepare": "npx prisma generate && npx prisma migrate deploy && npm run db:seed",
     "db:seed": "node prisma/seed.js",
     "start": "npx prisma db push --accept-data-loss && npx prisma generate && node dist/src/main.js",

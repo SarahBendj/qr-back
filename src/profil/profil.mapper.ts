@@ -104,7 +104,7 @@ export function mapProfilResponse(
     email: user.email,
     picture: user.picture,
     role: user.role,
-    plan: user.plan ?? null,
+    plan: planStatus.planPaid ? (user.plan ?? null) : null,
     planPaid: planStatus.planPaid,
     planActive: planStatus.planActive,
     model: null,

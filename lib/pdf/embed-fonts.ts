@@ -7,8 +7,10 @@ import type { PDFDocument, PDFFont } from 'pdf-lib';
 function resolveFontsDir(): string {
   const candidates = [
     join(__dirname, 'fonts'),
+    join(__dirname, 'pdf', 'fonts'),
     join(process.cwd(), 'lib', 'pdf', 'fonts'),
     join(process.cwd(), 'dist', 'lib', 'pdf', 'fonts'),
+    join(process.cwd(), 'dist', 'lib', 'pdf', 'pdf', 'fonts'),
   ];
   const dir = candidates.find((d) =>
     existsSync(join(d, 'NotoSans-Regular.ttf')),

@@ -232,7 +232,7 @@ export class OverviewService {
     });
 
     return {
-      plan: user?.plan ?? 'LITE',
+      plan: user?.plan ?? null,
       summary,
       categories,
       events: rows,

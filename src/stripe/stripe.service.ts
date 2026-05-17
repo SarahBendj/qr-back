@@ -193,6 +193,72 @@ export class StripeService {
     }));
   }
 
+  private isCheckoutSessionPaid(session: Stripe.Checkout.Session): boolean {
+    return (
+      session.status === 'complete' &&
+      (session.payment_status === 'paid' ||
+        session.payment_status === 'no_payment_required')
+    );
+  }
+
+  private parsePlanIdFromProductId(productId: string): string | null {
+    return productId.match(/^plan_([^_]+)_/)?.[1] ?? null;
+  }
+
+  /** Latest checkout in progress — plan must not be granted until payment succeeds. */
+  private async getPendingPlanCheckout(userId: string) {
+    const pending = await this.prisma.payment.findFirst({
+      where: {
+        userId,
+        status: 'pending',
+        productId: { startsWith: 'plan_' },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { productId: true, createdAt: true },
+    });
+    if (!pending) return null;
+
+    const planId = this.parsePlanIdFromProductId(pending.productId);
+    if (!planId) return null;
+
+    const plan = await this.prisma.plan.findUnique({
+      where: { id: planId },
+      select: {
+        id: true,
+        tier: true,
+        name: true,
+        price: true,
+        currency: true,
+      },
+    });
+    if (!plan) return null;
+
+    return {
+      planId: plan.id,
+      tier: plan.tier,
+      name: plan.name,
+      price: plan.price,
+      currency: plan.currency,
+      status: 'pending' as const,
+      startedAt: pending.createdAt,
+    };
+  }
+
+  /** Revert plan tier stored on user when checkout never completed. */
+  private async reconcileUserPlanWithPayment(userId: string, planPaid: boolean) {
+    if (planPaid) return;
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { plan: true },
+    });
+    if (user?.plan) {
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { plan: null },
+      });
+    }
+  }
+
   /** Statut abonnement pour le profil — sans catalogue ni détails Stripe */
   async getPlanStatus(userId: string): Promise<{
     planPaid: boolean;
@@ -212,6 +278,9 @@ export class StripeService {
 
     const planPaid =
       hasActiveSubscription || Boolean(succeededPlanPayment);
+
+    await this.reconcileUserPlanWithPayment(userId, planPaid);
+
     return {
       planPaid,
       planActive: hasActiveSubscription,
@@ -251,17 +320,25 @@ export class StripeService {
         }),
       ]);
 
-    const currentPlan =
-      plans.find((p) => p.tier === user.plan) ?? null;
-
     const planPaid =
       hasActiveSubscription || Boolean(succeededPlanPayment);
     const planActive = hasActiveSubscription;
     const hasEventPlan = planPaid;
 
+    await this.reconcileUserPlanWithPayment(userId, planPaid);
+
+    const entitledTier = planPaid ? (user.plan ?? null) : null;
+    const currentPlan = entitledTier
+      ? (plans.find((p) => p.tier === entitledTier) ?? null)
+      : null;
+    const pendingPlanCheckout = planPaid
+      ? null
+      : await this.getPendingPlanCheckout(userId);
+
     return {
-      currentTier: user.plan ?? null,
+      currentTier: entitledTier,
       currentPlan,
+      pendingPlanCheckout,
       plans,
       hasEventPlan,
       planPaid,
@@ -562,6 +639,22 @@ export class StripeService {
         });
         if (!sessionRecord) return;
 
+        const paid = this.isCheckoutSessionPaid(session);
+        const eventId = session.metadata?.eventId;
+        const planId = session.metadata?.planId;
+
+        if (!paid) {
+          await this.prisma.paymentSession.update({
+            where: { id: sessionRecord.id },
+            data: { status: 'pending' },
+          });
+          await this.prisma.payment.update({
+            where: { id: sessionRecord.paymentId },
+            data: { status: 'pending' },
+          });
+          return;
+        }
+
         await this.prisma.paymentSession.update({
           where: { id: sessionRecord.id },
           data: { used: true, status: 'complete', paidAt: new Date() },
@@ -578,9 +671,6 @@ export class StripeService {
               : {}),
           },
         });
-
-        const eventId = session.metadata?.eventId;
-        const planId = session.metadata?.planId;
 
         if (session.mode === 'payment') {
           if (eventId) {
@@ -906,10 +996,17 @@ export class StripeService {
 
     let invoice: PaymentInvoiceResponse | null = null;
     if (paid && local?.payment?.id) {
-      invoice = await this.paymentInvoiceService.issueForPayment(
-        local.payment.id,
-        { sendEmail: false, includePdfBase64: true },
-      );
+      try {
+        invoice = await this.paymentInvoiceService.issueForPayment(
+          local.payment.id,
+          { sendEmail: false, includePdfBase64: true },
+        );
+      } catch (err) {
+        console.error(
+          `Invoice PDF skipped for payment ${local.payment.id} (checkout still verified):`,
+          err,
+        );
+      }
     }
 
     return {
@@ -929,7 +1026,7 @@ export class StripeService {
     await this.prisma.user.update({
       where: { id: userId },
       data: {
-        plan: PlanTier.LITE,
+        plan: null,
         maxEventsOverride: null,
         maxGuestsOverride: null,
         maxEmailsOverride: null,
