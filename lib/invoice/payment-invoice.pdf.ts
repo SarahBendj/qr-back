@@ -70,12 +70,15 @@ export async function generatePaymentInvoicePdf(
     });
   };
 
+  const logoW = 88;
+  const logoGapBelow = 28;
+  let logoBottom = y - 18;
+
   try {
     const logoRes = await fetch(brandLogoUrl());
     if (logoRes.ok) {
       const bytes = await logoRes.arrayBuffer();
       const logo = await pdf.embedPng(bytes);
-      const logoW = 120;
       const logoH = (logo.height / logo.width) * logoW;
       page.drawImage(logo, {
         x: margin,
@@ -83,15 +86,18 @@ export async function generatePaymentInvoicePdf(
         width: logoW,
         height: logoH,
       });
+      logoBottom = y - logoH;
     }
   } catch {
-    drawAt('SmartQR', margin, y - 16, 16, true, C.accent);
+    drawAt('SmartQR', margin, y - 16, 14, true, C.accent);
+    logoBottom = y - 16;
   }
 
   const factureLabel = 'FACTURE';
   const factureW = bold.widthOfTextAtSize(factureLabel, 22);
-  drawAt(factureLabel, width - margin - factureW, y - 8, 22, true, C.accent);
-  y -= 64;
+  drawAt(factureLabel, width - margin - factureW, y - 6, 22, true, C.accent);
+
+  y = logoBottom - logoGapBelow;
 
   page.drawLine({
     start: { x: margin, y },
@@ -99,7 +105,7 @@ export async function generatePaymentInvoicePdf(
     thickness: 1,
     color: C.rule,
   });
-  y -= 32;
+  y -= 36;
 
   const colW = contentW / 2 - 16;
   drawAt('Référence', margin, y, 9, true, C.muted);
