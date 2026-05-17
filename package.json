@@ -8,7 +8,7 @@
   "scripts": {
     "build": "nest build && node scripts/ensure-dist-entry.js",
     "prisma:prepare": "npx prisma generate && npx prisma migrate deploy && npm run db:seed",
-    "db:seed": "npx ts-node prisma/seed.ts",
+    "db:seed": "node prisma/seed.js",
     "start": "npx prisma db push --accept-data-loss && npx prisma generate && node dist/src/main.js",
     "start:dev": "node scripts/ensure-dist-entry.js && nest start --watch",
     "start:debug": "nest start --debug --watch",
@@ -88,7 +88,7 @@
     "wrangler": "^4.54.0"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "node prisma/seed.js"
   },
   "jest": {
     "moduleFileExtensions": [
