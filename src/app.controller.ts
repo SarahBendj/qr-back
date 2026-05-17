@@ -9,4 +9,10 @@ export class AppController {
   getHello(): string {
     return this.appService.getHello();
   }
+
+  /** Liveness probe for the Next.js front (GET /api/health → /health). */
+  @Get('health')
+  health() {
+    return { ok: true, service: 'smart_qr_candidat' };
+  }
 }
