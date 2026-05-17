@@ -48,6 +48,10 @@ async function bootstrap() {
   app.use(
     '/stripe/webhook',
     bodyParser.raw({ type: 'application/json' }),
+    (req, _res, next) => {
+      (req as { rawBody?: Buffer }).rawBody = req.body as Buffer;
+      next();
+    },
   );
 
   app.useStaticAssets(cvDir, { prefix: '/uploads/cv/' });
@@ -57,8 +61,19 @@ async function bootstrap() {
   app.useGlobalInterceptors(new LoggingInterceptor());
 
 // main.ts
+const corsOrigins: Array<string | RegExp> = [
+  'http://localhost:3001',
+  'https://smart-qr.pro',
+  'https://www.smart-qr.pro',
+];
+const ngrokOrigin = process.env.NGROK_ORIGIN?.trim();
+if (ngrokOrigin) corsOrigins.push(ngrokOrigin);
+if (process.env.NODE_ENV !== 'production') {
+  corsOrigins.push(/https:\/\/.*\.ngrok-free\.dev$/);
+}
+
 app.enableCors({
-  origin: ['http://localhost:3001', 'https://smart-qr.pro',  'https://www.smart-qr.pro'],
+  origin: corsOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: [

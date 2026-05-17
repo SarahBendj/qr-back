@@ -13,7 +13,14 @@ export class R2Service {
    */
   async uploadFile(
     file: Express.Multer.File,
-    folder: "profile-picture" | "event" | "cv" | "portfolio" | "portfolio/projects",
+    folder:
+      | "profile-picture"
+      | "event"
+      | "cv"
+      | "portfolio"
+      | "portfolio/projects"
+      | "salon"
+      | "salon/favicon",
   ): Promise<string> {
  
     if (!file || !file.buffer) {

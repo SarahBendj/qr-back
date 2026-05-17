@@ -34,19 +34,22 @@ export class ApiKeyGuard implements CanActivate {
       throw new UnauthorizedException('Missing API Key');
     }
 
-    const where: any = {};
+    const where: Record<string, string> = {};
     for (const key of config.lookup) {
       where[key] = request.params[key];
     }
 
     const table = (this.prisma as any)[config.table];
-  
 
     if (!table) {
       throw new ForbiddenException(`Table '${config.table}' does not exist in Prisma`);
     }
 
-    const record = await table.findUnique({ where });
+    // findUnique only works on @unique fields — use findFirst for composite lookups
+    const record =
+      config.lookup.length === 1
+        ? await table.findUnique({ where })
+        : await table.findFirst({ where });
 
 
     if (!record) {

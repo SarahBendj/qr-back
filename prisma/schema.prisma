@@ -10,10 +10,10 @@ datasource db {
 //
 // ENUMS
 //
-enum Subscription {
-  FREE
-  PRO
-  PREMIUM
+enum PlanTier {
+  LITE
+  GROWTH
+  BUSINESS
 }
 
 //
@@ -26,75 +26,59 @@ model User {
   name         String?
   picture      String?
   role         String         @default("user")
-  subscription Subscription   @default(FREE)
-  model        ModelType      @default(STANDARD) 
+  /// Set only after successful Stripe subscription / plan payment
+  plan         PlanTier?
   country      String?
   address      String?
   exceptionCode String?
   stripeCustomerId String?      @unique
+  maxEventsOverride Int?
+  maxGuestsOverride Int?
+  maxEmailsOverride Int?
 
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
   smartQrs       SmartQR[]
-  candidate      Candidate?
   events         Event[]
   refreshTokens  RefreshToken[]
   payment        Payment[]
-  portfolio      Portfolio?
+  salonProfile   SalonProfile?
+  
   notifications  Notification[]
 }
 
-model Portfolio {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String   @unique
+/// White-label salon (Business / $70+): subdomain mark.smartqr.pro
+model SalonProfile {
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String   @unique
+  /// Subdomain slug: grantee → grantee.smartqr.pro
+  mark        String   @unique
+  displayName String?
+  tagline     String?
+  aboutText   String?
+  logoKey     String?
+  faviconKey  String?
+  bannerKeys  String[] @default([])
+  accentColor  String?  @default("#a855f7")
+  accentColor2 String?  @default("#ec4899")
+  /// Premium page preset: dark | light
+  pageTheme     String   @default("dark")
+  referenceName String?
+  contactEmails String[] @default([])
+  footerAddress String?
+  footerPhone   String?
+  footerWebsite String?
+  footerLegal   String?
+  createdAt     DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  title     String?
-  bio       String?
-  image     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  isPaid    Boolean       @default(false)
-  PaymentId String? 
-
-  themeId   String?  
-
-  theme     Theme?    @relation("PortfolioTheme", fields: [themeId], references: [id])
-
-  projects    Project[]
-  softSkills  SoftSkill[]
-  ideas       Idea[]
-  missions    Mission[]
+  @@index([mark])
 }
 
 
-model Project {
-  id          String     @id @default(cuid())
-  portfolio   Portfolio  @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  portfolioId String
-  title       String
-  description String?
-  tag        String[]   
-  link        String?
-  image       String?
-}
-model SoftSkill {
-  id          String     @id @default(cuid())
-  portfolio   Portfolio   @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  portfolioId String
-  skill       String
 
-}
-
-enum ModelType {
-  STANDARD
-  PORTFOLIO
-}
-
-//
-// SMART QR
-//
 model SmartQR {
   id          String     @id @default(cuid())
   slug        String     @unique
@@ -109,87 +93,8 @@ model SmartQR {
   userId      String
 }
 
-//
-// CANDIDATE
-//
-model Candidate {
-  id        String       @id @default(cuid())
-  user      User         @relation(fields: [userId], references: [id])
-  userId    String       @unique 
-  firstname String
-  lastname  String
-  title     String?
-  status    String    @default("free")
-  bio       String?
-  nindo     String?
-  slug      String      @unique
-  isPrivate Boolean     @default(false)
-  isPrivatePaid Boolean       @default(false)
-  cvUrl     String?
-  imageUrl  String?
-  accessCode String?          @unique
 
-  createdAt DateTime    @default(now())
 
-  links     Link[]
-}
-
-//
-// CANDIDATE LINKS
-//
-model Link {
-  id          String     @id @default(cuid())
-  candidate   Candidate  @relation(fields: [candidateId], references: [id] ,onDelete: Cascade)
-  candidateId String
-
-  title       String
-  url         String
-  order       Int?
-}
-
-//
-// COMPANY (Recruiter / Hirer)
-//
-model Company {
-  id        String   @id @default(cuid())
-  name      String
-  website   String?
-  logo      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  missions Mission[]
-}
-
-//
-// MISSION (job offers – only for candidates with a portfolio)
-//
-model Mission {
-  id              String    @id @default(cuid())
-  portfolio       Portfolio @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  portfolioId     String
-  company         Company?  @relation(fields: [companyId], references: [id], onDelete: SetNull)
-  companyId       String?
-
-  position        String
-  location        String?
-  type            String // Full-time, Part-time, Contract, etc.
-  salary          String?
-  description     String?
-  requirements    String?
-  startDate       DateTime?
-  status          String    @default("pending") // pending | accepted | rejected
-  matchScore      Int? // 0-100
-
-  recruiterName       String?
-  recruiterEmail      String?
-  recruiterPhone      String?
-  emailConfirmed      Boolean   @default(false)
-  recruiterCancelToken String?  @unique
-
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-}
 
 //
 // NOTIFICATION (for candidate when recruiter cancels mission, etc.)
@@ -212,8 +117,6 @@ model Notification {
 //
 model Idea {
   id          String     @id @default(cuid())
-  portfolio   Portfolio? @relation(fields: [portfolioId], references: [id], onDelete: Cascade)
-  portfolioId String?
 
   title       String
   description String
@@ -230,7 +133,12 @@ model Event {
   id          String          @id @default(cuid())
   user        User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId      String
-
+  address     String?
+  zipCode     String?
+  city        String?
+  country     String?
+  latitude    Float?
+  longitude   Float?
   title       String
   description String?
   location    String?
@@ -238,7 +146,6 @@ model Event {
   date        DateTime?
   time        String?
   contact     String?
-  visibility  String          @default("public")
   isPrivate   Boolean         @default(false)
   isPrivatePaid Boolean       @default(false)
   eventImage  String?
@@ -255,6 +162,17 @@ model Event {
   instructions Instruction[] 
   price       String?
   participants Participant[]
+  views        EventView[]
+}
+
+model EventView {
+  id        String   @id @default(cuid())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId   String
+  viewedAt  DateTime @default(now())
+  source    String?
+
+  @@index([eventId, viewedAt])
 }
 
 model Instruction {
@@ -282,14 +200,17 @@ model EventLink {
 // EVENT PARTICIPANTS
 //
 model Participant {
-  id        String  @id @default(cuid())
-  event     Event   @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  eventId   String
+  id          String    @id @default(cuid())
+  event       Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId     String
 
-  name      String
-  confirmed Boolean @default(false)
-  role      String
-  email     String?
+  name        String
+  confirmed   Boolean   @default(false)
+  declined    Boolean   @default(false)
+  invitedAt   DateTime  @default(now())
+  respondedAt DateTime?
+  role        String
+  email       String?
 }
 
 model Theme {
@@ -301,7 +222,6 @@ model Theme {
   text_primary   String
   text_secondary String
 
-  portfolios     Portfolio[] @relation("PortfolioTheme")
 }
 
 
@@ -315,11 +235,10 @@ model RefreshToken {
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
+
 enum PaymentType {
   
-  portfolio
-  privacy_event
-  privacy_candidate
+ event
 }
 
 
@@ -347,6 +266,9 @@ model PaymentSession {
   paymentId        String
   stripeSessionId  String    @unique
   status           String
+  paidAt           DateTime?
+  failedAt         DateTime?
+  expiredAt        DateTime?
   type             PaymentType
   token            String    @unique @default(dbgenerated("gen_random_uuid()"))
   used             Boolean   @default(false)
@@ -354,22 +276,22 @@ model PaymentSession {
   updatedAt        DateTime  @updatedAt
 }
 
-// model Invoice {
-//   id              String   @id @default(cuid())
-//   invoiceNumber   String   @unique
-//   payment         Payment  @relation(fields: [paymentId], references: [id])
-//   paymentId       String
-//   userId          String
-//   amount          Int
-//   currency        String
-//   type            PaymentType
-//   status          String   // 'sent', 'failed'
-//   sentAt          DateTime?
-//   createdAt       DateTime @default(now())
-  
-//   customerName    String
-//   customerEmail   String
-//   customerAddress String?
-//   productName     String
-//   description     String?
-// }
+/// Catalogue des offres (une ligne = un plan complet, features incluses)
+model Plan {
+  id            String   @id @default(cuid())
+  tier          PlanTier @unique
+  name          String
+  description   String?
+  price         Int
+  currency      String   @default("EUR")
+  interval      String   // month | year
+  intervalCount Int      @default(1)
+  maxEvents     Int?     @default(1)
+  maxGuests     Int?     @default(50)
+  maxEmails     Int?     @default(100)
+  discount      Int?     // % optionnel
+  features      String[] // ex: ["Portfolio", "QR illimité", "Événements privés"]
+  stripePriceId String?  @unique
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}

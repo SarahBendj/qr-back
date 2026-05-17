@@ -12,5 +12,8 @@ npx prisma generate
 echo "Applying migrations..."
 npx prisma migrate dev --name init --smart-qr
 
+echo "Building NestJS app..."
+npm run build
+
 echo "Starting NestJS app..."
-node dist/src/main.js
+node dist/main.js

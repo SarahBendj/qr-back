@@ -4,18 +4,39 @@ import { PrismaService } from '../prisma/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import * as crypto from 'crypto';
 import { SmartQRUserMailing } from 'lib/mail/send.mail';
+import { StripeService } from 'src/stripe/stripe.service';
+import { CookieOptions } from 'express';
+
+const isProd = process.env.NODE_ENV === 'production';
+
+const COOKIE_BASE: CookieOptions = {
+  httpOnly: true,
+  secure: isProd,
+  sameSite: isProd ? 'none' : 'lax',
+  path: '/',
+};
+
+const ACCESS_TOKEN_MS = 1000 * 60 * 15; // 15 minutes — matches JWT expiresIn
+
+const ACCESS_COOKIE_OPTS: CookieOptions = {
+  ...COOKIE_BASE,
+  maxAge: ACCESS_TOKEN_MS,
+};
+
+const REFRESH_COOKIE_OPTS: CookieOptions = {
+  ...COOKIE_BASE,
+  maxAge: 1000 * 60 * 60 * 24 * 30, // 30 days
+};
 
 @Injectable()
 export class AuthService {
-  
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
-      private readonly mailService: SmartQRUserMailing
+    private readonly mailService: SmartQRUserMailing,
+    private readonly stripeService: StripeService,
   ) {}
 
-
-  // --- Google login + token creation ---
   async handleGoogleLogin(
     payload: {
       id: string;
@@ -24,7 +45,7 @@ export class AuthService {
       picture?: string;
       userConsented?: boolean;
     },
-    res: Response
+    res: Response,
   ) {
     const { id: googleId, email, name, picture, userConsented } = payload;
 
@@ -36,38 +57,24 @@ export class AuthService {
     let user = await this.prisma.user.findUnique({ where: { email } });
     if (!user) {
       user = await this.prisma.user.create({
-        data: { googleId, email, name, picture },
+        data: { googleId, email, name, picture, plan: null },
       });
-     await this.mailService.sendWelcomeToClient(email ,name || 'customer')
+      await this.mailService.sendWelcomeToClient(email, name || 'customer');
     } else if (!user.googleId) {
       user = await this.prisma.user.update({
         where: { id: user.id },
         data: { googleId },
       });
-   
     }
-
 
     const accessToken = this.generateAccessToken(user);
     const refreshToken = await this.generateRefreshToken(user.id);
 
-  const isProd = true; // ou process.env.NODE_ENV === 'production'
+    res.cookie('nest_token', accessToken, ACCESS_COOKIE_OPTS);
+    res.cookie('refresh_token', refreshToken, REFRESH_COOKIE_OPTS);
 
-res.cookie('nest_token', accessToken, {
-  httpOnly: true,            // ✅ JS client ne peut pas lire le token
-  secure: false,              // ✅ HTTPS requis pour sameSite='none'
-  sameSite: 'lax',          // ✅ obligatoire pour cross-site
-  maxAge: 1000 * 60 * 60,    // 1h
-  path: '/',                 // accessible partout
-});
-
-res.cookie('refresh_token', refreshToken, {
-  httpOnly: true,
-  secure: false,
-  sameSite: 'lax',
-  maxAge: 1000 * 60 * 60 * 24 * 30,
-  path: '/',
-});
+    const { planPaid, planActive } =
+      await this.stripeService.getPlanStatus(user.id);
 
     return {
       token: accessToken,
@@ -77,24 +84,24 @@ res.cookie('refresh_token', refreshToken, {
         name: user.name,
         picture: user.picture,
         role: user.role,
+        plan: user.plan ?? null,
+        planPaid,
+        planActive,
       },
     };
   }
 
-  // --- Generate access token ---
-  private generateAccessToken(user: any) {
-    return this.jwt.sign({
-      sub: user.id,
-      email: user.email,
-      role: user.role,
-    }, { expiresIn: '1h' });
+  private generateAccessToken(user: { id: string; email: string; role: string }) {
+    return this.jwt.sign(
+      { sub: user.id, email: user.email, role: user.role },
+      { expiresIn: '15m' },
+    );
   }
 
-  // --- Generate refresh token and store in DB ---
   private async generateRefreshToken(userId: string) {
     const token = crypto.randomBytes(64).toString('hex');
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 30); // 30 jours
+    expiresAt.setDate(expiresAt.getDate() + 30);
 
     await this.prisma.refreshToken.create({
       data: { userId, token, expiresAt },
@@ -103,47 +110,42 @@ res.cookie('refresh_token', refreshToken, {
     return token;
   }
 
-  // --- Refresh access token endpoint ---
   async refreshToken(oldRefreshToken: string, res: Response) {
-
     const record = await this.prisma.refreshToken.findUnique({
       where: { token: oldRefreshToken },
       include: { user: true },
     });
 
     if (!record || record.expiresAt < new Date()) {
+      if (record) {
+        await this.prisma.refreshToken.delete({ where: { token: oldRefreshToken } });
+      }
       throw new UnauthorizedException('Invalid or expired refresh token');
     }
 
-    // Optionally: rotate refresh token
     const newRefreshToken = await this.generateRefreshToken(record.userId);
     await this.prisma.refreshToken.delete({ where: { token: oldRefreshToken } });
 
+    // prune other expired tokens for this user (lightweight cleanup)
+    await this.prisma.refreshToken.deleteMany({
+      where: { userId: record.userId, expiresAt: { lt: new Date() } },
+    });
+
     const accessToken = this.generateAccessToken(record.user);
- 
 
-    // Set new cookies
-    res.cookie('nest_token', accessToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 1000 * 60 * 60,
-    });
-
-    res.cookie('refresh_token', newRefreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: 'none',
-      maxAge: 1000 * 60 * 60 * 24 * 30,
-    });
+    res.cookie('nest_token', accessToken, ACCESS_COOKIE_OPTS);
+    res.cookie('refresh_token', newRefreshToken, REFRESH_COOKIE_OPTS);
 
     return { accessToken };
   }
 
-  // --- Logout ---
-  logoutResponse(res: Response) {
-    res.clearCookie('nest_token', { httpOnly: true, secure: true, sameSite: 'none' });
-    res.clearCookie('refresh_token', { httpOnly: true, secure: true, sameSite: 'none' });
+  async logout(refreshToken: string | undefined, res: Response) {
+    if (refreshToken) {
+      await this.prisma.refreshToken.deleteMany({ where: { token: refreshToken } });
+    }
+
+    res.clearCookie('nest_token', COOKIE_BASE);
+    res.clearCookie('refresh_token', COOKIE_BASE);
     return { ok: true, message: 'Logged out' };
   }
 }

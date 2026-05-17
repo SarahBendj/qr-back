@@ -55,12 +55,12 @@ export class PdfQrController {
   @Put('access-code/:url')
   @Throttle({ exp: { limit: 6, ttl: 3600000 * 24 } })
   async generateAccessCode(
-  @Param('url') url: string,
-  @Body() data: { type: string; code: string }
-) {
-
-  return this.pdfQrService.generateAccessCode(url, data.type, data.code);
-}
+    @Param('url') url: string,
+    @Body() raw: { type?: string; code?: string; body?: { type?: string; code?: string } },
+  ) {
+    const data = raw.body ?? raw;
+    return this.pdfQrService.generateAccessCode(url, data.type ?? '', data.code);
+  }
 
 
 

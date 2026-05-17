@@ -3,7 +3,6 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaClient } from '@prisma/client';
 import { PDFDocument } from 'pdf-lib';
 import * as QRCode from 'qrcode';
-import { CandidateService } from 'src/candidate/candidate.service';
 import { EventService } from 'src/event/event.service';
 
 interface QrPlacementOptions {
@@ -25,10 +24,7 @@ interface QrPosition {
 export class PdfQrService {
   private prisma = new PrismaClient();
 
-  constructor(
-    private readonly eventService: EventService,
-    private readonly candidateService: CandidateService,
-  ) {}
+  constructor(private readonly eventService: EventService) {}
 
   /**
    * Merge multiple PDFs and add a QR code on the last page
@@ -48,7 +44,7 @@ export class PdfQrService {
     
       const mergedPdf = await this.mergePdfBuffers(pdfBuffers);
      
-      await this.validateCandidate(qrText);
+      await this.validateQrTarget(qrText);
       
       const qrPngBuffer = await this.generateQrCode(qrText);
      
@@ -105,16 +101,24 @@ export class PdfQrService {
   /**
    * Extract slug from URL and validate candidate exists
    */
-  private async validateCandidate(qrText: string): Promise<void> {
+  private async validateQrTarget(qrText: string): Promise<void> {
     const slug = this.extractSlug(qrText);
 
-    const candidate = await this.prisma.candidate.findUnique({
-      where: { slug },
-      select: { id: true, slug: true },
-    });
+    const [smartQr, event] = await Promise.all([
+      this.prisma.smartQR.findUnique({
+        where: { slug },
+        select: { id: true },
+      }),
+      this.prisma.event.findUnique({
+        where: { slug },
+        select: { id: true },
+      }),
+    ]);
 
-    if (!candidate) {
-      throw new NotFoundException(`Candidate with slug "${slug}" not found`);
+    if (!smartQr && !event) {
+      throw new NotFoundException(
+        `No SmartQR or event found for slug "${slug}"`,
+      );
     }
   }
 
@@ -232,12 +236,9 @@ export class PdfQrService {
     
 }
 
-async generateAccessCode(url: string, type: string, code: string) {
-  // -----------------------------
-  // 1. INPUT VALIDATION
-  // -----------------------------
-  if (!url || !type || !code) {
-    throw new BadRequestException("url, type and code are required");
+async generateAccessCode(url: string, type: string, code?: string) {
+  if (!url || !type) {
+    throw new BadRequestException('url and type are required');
   }
 
   const normalizedType = type.toLowerCase().trim();
@@ -247,11 +248,16 @@ async generateAccessCode(url: string, type: string, code: string) {
     return this.eventService.updateEventAccessCode(url, code);
   } 
 
-  if (normalizedType === "candidate") {
-    return this.candidateService.updateCandidateAccessCode(url, code);
+  if (normalizedType === "smartqr" || normalizedType === "smart-qr") {
+    const slug = this.extractSlug(url);
+    const smartQr = await this.prisma.smartQR.findUnique({ where: { slug } });
+    if (!smartQr) {
+      throw new NotFoundException(`SmartQR with slug "${slug}" not found`);
+    }
+    return { ok: true, slug, message: 'SmartQR access code update not implemented' };
   }
 
-  throw new BadRequestException(`Unknown type '${type}'`);
+  throw new BadRequestException(`Unknown type '${type}'. Use "event".`);
 }
 
 }

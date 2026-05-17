@@ -1,9 +1,15 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Stripe from 'stripe';
-import { PrismaService } from '../prisma/prisma.service'; // ton service Prisma
-import { PaymentType } from '@prisma/client';
-
+import { PrismaService } from '../prisma/prisma.service';
+import { PaymentType, PlanTier } from '@prisma/client';
+import { PaymentInvoiceService } from './payment-invoice.service';
+import type { PaymentInvoiceResponse } from 'lib/invoice/payment-invoice.types';
+import {
+  assertCustomPlanAmount,
+  isCustomPlanTier,
+} from './custom-plan.util';
+import { SalonLifecycleService } from '../salon/salon-lifecycle.service';
 
 @Injectable()
 export class StripeService {
@@ -11,7 +17,9 @@ export class StripeService {
 
   constructor(
     private readonly configService: ConfigService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly paymentInvoiceService: PaymentInvoiceService,
+    private readonly salonLifecycle: SalonLifecycleService,
   ) {
     const secretKey = this.configService.getOrThrow('STRIPE_SECRET_KEY');
     this.stripe = new Stripe(secretKey);
@@ -21,409 +29,1033 @@ export class StripeService {
     return this.stripe;
   }
 
-  async createPaymentIntent(
-    userId: string,
-    productId :string,
-    amount: number,
-    currency: string,
-    type : PaymentType
-  ) {
-   const payment = await this.prisma.payment.create({
-  data: {
-    productId: productId,
-    amount: amount*100,
-    currency: "usd",
-    type: PaymentType.privacy_event,
-    status: "pending",
+  private readonly planSelect = {
+    id: true,
+    tier: true,
+    name: true,
+    description: true,
+    price: true,
+    currency: true,
+    interval: true,
+    intervalCount: true,
+    maxEvents: true,
+    maxGuests: true,
+    maxEmails: true,
+    discount: true,
+    features: true,
+    stripePriceId: true,
+  } as const;
 
-    user: {
-      connect: {
-        id: userId,
-      },
-    },
-  },
-});
+  private readonly planSlugToTier: Record<string, PlanTier> = {
+    lite: PlanTier.LITE,
+    growth: PlanTier.GROWTH,
+    business: PlanTier.BUSINESS,
+    unique: PlanTier.LITE,
+    starter: PlanTier.GROWTH,
+    pro: PlanTier.BUSINESS,
+  };
 
+  /** Card + wallets (Klarna, Amazon Pay, Link, …) — enable them in Stripe Dashboard too */
+  private checkoutPaymentSettings(): Stripe.Checkout.SessionCreateParams {
+    const fromEnv = process.env.STRIPE_PAYMENT_METHODS?.split(',')
+      .map((m) => m.trim())
+      .filter(Boolean) as Stripe.Checkout.SessionCreateParams.PaymentMethodType[] | undefined;
 
-    // PaymentIntent Stripe
-    const paymentIntent = await this.stripe.paymentIntents.create({
-      amount : amount * 100,
-      currency,
-      automatic_payment_methods: { enabled: true },
-      metadata: {
-        paymentId: payment.id,
-         type,
-         productId : productId
-      },
-    });
-     const session = await this.prisma.paymentSession.create({
-    data: {
-      paymentId: payment.id,
-      stripeSessionId: paymentIntent.id,
-      status: paymentIntent.status,
-      type,
-    },
-  });
+    if (fromEnv?.length) {
+      return { payment_method_types: fromEnv };
+    }
 
-
-    await this.prisma.payment.update({
-      where: { id: payment.id },
-      data: { stripePaymentIntentId: paymentIntent.id },
-    });
-
- 
-
-    return { clientSecret: paymentIntent.client_secret, paymentId: payment.id , paymentToken: session.token };
+    return {
+      payment_method_types: [
+        'card',
+        'klarna',
+        'amazon_pay',
+        'link',
+      ],
+    };
   }
 
-  async createSubscription(
-    userId: string,
-    productId : string,
-    priceId: string,
-    type: PaymentType,
-  ) {
+  private frontendBase(): string {
+    return (
+      this.configService.get<string>('FRONTEND_URL') ||
+      process.env.HOST ||
+      'http://localhost:3001'
+    );
+  }
+
+  private checkoutUrls() {
+    const base = this.frontendBase();
+    return {
+      success_url: `${base}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${base}/payment/cancel`,
+    };
+  }
+
+  private async resolvePlan(planId: string) {
+    const byId = await this.prisma.plan.findUnique({ where: { id: planId } });
+    if (byId) return byId;
+
+    const tier = this.planSlugToTier[planId.toLowerCase()];
+    if (tier) {
+      const byTier = await this.prisma.plan.findUnique({ where: { tier } });
+      if (byTier) return byTier;
+    }
+
+    throw new BadRequestException('Plan not found');
+  }
+
+  private async getOrCreateStripeCustomer(userId: string) {
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new BadRequestException('User not found');
 
-    let customerId = user.stripeCustomerId;
+    if (user.stripeCustomerId) {
+      return { user, customerId: user.stripeCustomerId };
+    }
 
-    if (!customerId) {
     const customer = await this.stripe.customers.create({
-  email: user.email,
-  metadata: { userId },
-});
-
-
-
-      customerId = customer.id;
-
-      await this.prisma.user.update({
-        where: { id: user.id },
-        data: { stripeCustomerId: customerId },
-      });
-    }
-    let payment : any ;
-   payment = await this.prisma.payment.findUnique({
-  where: {
-      productId,
-      userId,
-    },
-});
-
-if (payment) {
-  if (payment.status === "succeeded") {
-     throw new BadRequestException('PAYMENT_ALREADY_DONE')
-    };
-  
-
-} else {
-  // Cas 3 : aucun paiement, on crée un nouveau
-  payment = await this.prisma.payment.create({
-    data: {
-      productId: productId,
-      amount: 5.99,
-      currency: "usd",
-      type: PaymentType.privacy_event,
-      status: "pending",
-      user: {
-        connect: {
-          id: userId,
-        },
-      },
-    },
-  });
-
-    }
-
-  const session = await this.stripe.checkout.sessions.create({
-    mode: 'subscription',
-    customer: customerId,
-    line_items: [{ price: priceId, quantity: 1 }],
-
-    metadata: {
-      paymentId: payment.id,
-      type,
-    },
-
-    subscription_data: {
-      metadata: {
-        paymentId: payment.id,
-        type,
-        productId
-      },
-    },
-
-    success_url: `${process.env.HOST}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${process.env.HOST}/payment/cancel`,
-  });
-
-  // 3️⃣ Store session
-  await this.prisma.paymentSession.create({
-    data: {
-      paymentId: payment.id,
-      stripeSessionId: session.id,
-      status: 'pending',
-      type,
-    },
-  });
-
-  // 4️⃣ RETURN THE SESSION URL (IMPORTANT)
-  return {
-    checkoutSessionId: session.id,
-    paymentUrl: session.url,
-  };
-
-  }
-
-
-  async createCustomerPortalSession(userId: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user || !user.stripeCustomerId) {
-      throw new BadRequestException('User does not have a Stripe customer ID');
-    }
-
-    // Create a Stripe Customer Portal session
-    const portalSession = await this.stripe.billingPortal.sessions.create({
-      customer: user.stripeCustomerId,
-      return_url: process.env.FRONTEND_BILLING_RETURN_URL 
+      email: user.email,
+      metadata: { userId },
     });
 
-    //  Return the portal URL
-    return { url: portalSession.url };
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { stripeCustomerId: customer.id },
+    });
+
+    return { user, customerId: customer.id };
   }
-async handleWebhook(event: Stripe.Event) {
-   const obj: any = event.data.object; 
-  try {
-    
-    // ----------------------------
-    // ONE_TIME PAYMENT
-    // ----------------------------
-    if (event.type === 'payment_intent.succeeded') {
-      const paymentIntent = event.data.object as Stripe.PaymentIntent;
-      const paymentId = paymentIntent.metadata?.paymentId;
-      const productId = paymentIntent.metadata?.productId;
-      const type = paymentIntent.metadata?.type;
 
-      if (!paymentId) return;
+  /** Stripe Checkout needs `price_xxx` — not the amount in Plan.price */
+  private async ensureStripePriceId(plan: {
+    id: string;
+    tier: PlanTier;
+    name: string;
+    description: string | null;
+    price: number;
+    currency: string;
+    interval: string;
+    intervalCount: number;
+    stripePriceId: string | null;
+  }): Promise<string> {
+    if (plan.stripePriceId) return plan.stripePriceId;
 
-  
-      await this.prisma.paymentSession.updateMany({
-        where: { stripeSessionId: paymentIntent.id },
-        data: { used: true, status: 'complete' },
+    const envPriceIds: Record<PlanTier, string | undefined> = {
+      LITE: process.env.STRIPE_PRICE_LITE,
+      GROWTH: process.env.STRIPE_PRICE_GROWTH,
+      BUSINESS: process.env.STRIPE_PRICE_BUSINESS,
+    };
+    const fromEnv = envPriceIds[plan.tier];
+    if (fromEnv) {
+      await this.prisma.plan.update({
+        where: { id: plan.id },
+        data: { stripePriceId: fromEnv },
       });
+      return fromEnv;
+    }
 
-      const record = await this.prisma.payment.update({
-        where: { id: paymentId },
-        data: { status: 'succeeded' },
-      });
+    const product = await this.stripe.products.create({
+      name: plan.name,
+      description: plan.description ?? undefined,
+      metadata: { planId: plan.id, tier: plan.tier },
+    });
 
-      if (!record) return;
+    const interval =
+      plan.interval === 'year' ? 'year' : ('month' as Stripe.Price.Recurring.Interval);
 
-      switch (type) {
-        case 'privacy_event':
-          await this.prisma.event.update({
-            where: { id : productId },
-            data: { isPrivatePaid: true },
-          });
-          break;
+    const price = await this.stripe.prices.create({
+      product: product.id,
+      unit_amount: plan.price,
+      currency: plan.currency.toLowerCase(),
+      recurring: {
+        interval,
+        interval_count: plan.intervalCount,
+      },
+    });
 
-        case 'privacy_candidate':
-          await this.prisma.candidate.updateMany({
-            where: { id : productId },
-            data: { isPrivatePaid: true },
-          });
-          break;
+    await this.prisma.plan.update({
+      where: { id: plan.id },
+      data: { stripePriceId: price.id },
+    });
 
-  
+    return price.id;
+  }
+
+  async listPlans() {
+    const rows = await this.prisma.plan.findMany({
+      orderBy: { price: 'asc' },
+      select: this.planSelect,
+    });
+    return rows.map((plan) => ({
+      ...plan,
+      maxEvents: plan.maxEvents ?? null,
+      maxGuests: plan.maxGuests ?? null,
+      maxEmails: plan.maxEmails ?? null,
+    }));
+  }
+
+  /** Statut abonnement pour le profil — sans catalogue ni détails Stripe */
+  async getPlanStatus(userId: string): Promise<{
+    planPaid: boolean;
+    planActive: boolean;
+  }> {
+    const [hasActiveSubscription, succeededPlanPayment] = await Promise.all([
+      this.checkActiveSubscription(userId),
+      this.prisma.payment.findFirst({
+        where: {
+          userId,
+          status: 'succeeded',
+          productId: { startsWith: 'plan_' },
+        },
+        select: { id: true },
+      }),
+    ]);
+
+    const planPaid =
+      hasActiveSubscription || Boolean(succeededPlanPayment);
+    return {
+      planPaid,
+      planActive: hasActiveSubscription,
+    };
+  }
+
+  async getPlanDetails(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        plan: true,
+        stripeCustomerId: true,
+        maxEventsOverride: true,
+        maxGuestsOverride: true,
+        maxEmailsOverride: true,
+      },
+    });
+    if (!user) {
+      throw new BadRequestException('User not found');
+    }
+
+    const [plans, eventCount, hasActiveSubscription, succeededPlanPayment] =
+      await Promise.all([
+        this.listPlans(),
+        this.prisma.event.count({ where: { userId } }),
+        this.checkActiveSubscription(userId),
+        this.prisma.payment.findFirst({
+          where: {
+            userId,
+            status: 'succeeded',
+            OR: [
+              { productId: { startsWith: 'plan_' } },
+              { type: PaymentType.event },
+            ],
+          },
+          select: { id: true },
+        }),
+      ]);
+
+    const currentPlan =
+      plans.find((p) => p.tier === user.plan) ?? null;
+
+    const planPaid =
+      hasActiveSubscription || Boolean(succeededPlanPayment);
+    const planActive = hasActiveSubscription;
+    const hasEventPlan = planPaid;
+
+    return {
+      currentTier: user.plan ?? null,
+      currentPlan,
+      plans,
+      hasEventPlan,
+      planPaid,
+      planActive,
+      usage: {
+        events: eventCount,
+        maxEvents:
+          user.maxEventsOverride ?? currentPlan?.maxEvents ?? null,
+        maxGuests:
+          user.maxGuestsOverride ?? currentPlan?.maxGuests ?? null,
+        maxEmails:
+          user.maxEmailsOverride ?? currentPlan?.maxEmails ?? null,
+      },
+      billing: {
+        hasActiveSubscription,
+        planPaid,
+        planActive,
+        canManageBilling: Boolean(user.stripeCustomerId),
+      },
+    };
+  }
+
+  async createPaymentIntent(
+    userId: string,
+    planId: string,
+    amount: number,
+    currency: string,
+    eventId?: string,
+    maxEvents?: number,
+    maxEmails?: number,
+  ) {
+    const plan = await this.resolvePlan(planId);
+    const isCustom = isCustomPlanTier(plan.tier);
+
+    if (isCustom) {
+      if (maxEvents == null || maxEmails == null) {
+        throw new BadRequestException('CUSTOM_PLAN_LIMITS_REQUIRED');
+      }
+      try {
+        assertCustomPlanAmount(amount, maxEvents, maxEmails);
+      } catch {
+        throw new BadRequestException('CUSTOM_PLAN_PRICE_MISMATCH');
       }
     }
 
-    // ----------------------------
-    // SUBSCRIPTION
-    // ----------------------------
-     if (
+    const { customerId } = await this.getOrCreateStripeCustomer(userId);
+    const type = PaymentType.event;
+    const amountCents = Math.round(amount * 100);
+    const currencyLower = currency.toLowerCase();
+
+    const payment = await this.prisma.payment.create({
+      data: {
+        productId: eventId ? `event_${eventId}` : `plan_${planId}_${userId}`,
+        amount: amountCents,
+        currency: currencyLower,
+        type,
+        status: 'pending',
+        user: { connect: { id: userId } },
+      },
+    });
+
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'payment',
+      customer: customerId,
+      ...this.checkoutPaymentSettings(),
+      ...this.checkoutUrls(),
+      locale: 'auto',
+      billing_address_collection: 'required',
+      line_items: [
+        {
+          quantity: 1,
+          price_data: {
+            currency: currencyLower,
+            unit_amount: amountCents,
+            product_data: { name: plan.name },
+          },
+        },
+      ],
+      metadata: {
+        paymentId: payment.id,
+        planId,
+        eventId: eventId ?? '',
+        userId,
+        ...(isCustom
+          ? {
+              maxEvents: String(maxEvents),
+              maxEmails: String(maxEmails),
+            }
+          : {}),
+      },
+    });
+
+    await this.prisma.paymentSession.create({
+      data: {
+        paymentId: payment.id,
+        stripeSessionId: session.id,
+        status: 'pending',
+        type,
+      },
+    });
+
+    if (!session.url) {
+      throw new BadRequestException('Stripe did not return a checkout URL');
+    }
+    return { url: session.url };
+  }
+
+  async createSubscription(userId: string, planId: string) {
+    const plan = await this.resolvePlan(planId);
+    const stripePriceId = await this.ensureStripePriceId(plan);
+
+    const { customerId } = await this.getOrCreateStripeCustomer(userId);
+    const activeSubs = await this.listActiveSubscriptionsForCustomer(customerId);
+
+    const alreadyOnThisPlan = activeSubs.some(
+      (sub) => sub.items.data[0]?.price?.id === stripePriceId,
+    );
+    if (alreadyOnThisPlan) {
+      throw new BadRequestException('PLAN_ALREADY_ACTIVE');
+    }
+
+    const type = PaymentType.event;
+    const productId = `plan_${plan.id}_${userId}`;
+
+    let payment = await this.prisma.payment.findUnique({ where: { productId } });
+    if (payment?.status === 'succeeded' && payment.stripeSubscriptionId) {
+      const subStillActive = activeSubs.some(
+        (s) => s.id === payment!.stripeSubscriptionId,
+      );
+      if (subStillActive) {
+        throw new BadRequestException('PAYMENT_ALREADY_DONE');
+      }
+    }
+    if (!payment) {
+      payment = await this.prisma.payment.create({
+        data: {
+          productId,
+          amount: plan.price,
+          currency: plan.currency.toLowerCase(),
+          type,
+          status: 'pending',
+          user: { connect: { id: userId } },
+        },
+      });
+    }
+
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customerId,
+      ...this.checkoutPaymentSettings(),
+      ...this.checkoutUrls(),
+      locale: 'auto',
+      billing_address_collection: 'required',
+      line_items: [{ price: stripePriceId, quantity: 1 }],
+      metadata: { paymentId: payment.id, planId: plan.id, userId },
+      subscription_data: {
+        metadata: { paymentId: payment.id, planId: plan.id, userId },
+      },
+    });
+
+    await this.prisma.paymentSession.create({
+      data: {
+        paymentId: payment.id,
+        stripeSessionId: session.id,
+        status: 'pending',
+        type,
+      },
+    });
+
+    if (!session.url) {
+      throw new BadRequestException('Stripe did not return a checkout URL');
+    }
+    return { url: session.url };
+  }
+
+  async createCustomerPortalSession(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.stripeCustomerId) {
+      throw new BadRequestException('User does not have a Stripe customer ID');
+    }
+
+    const portalSession = await this.stripe.billingPortal.sessions.create({
+      customer: user.stripeCustomerId,
+      return_url: process.env.FRONTEND_BILLING_RETURN_URL,
+    });
+
+    return { url: portalSession.url };
+  }
+
+  async handleWebhook(event: Stripe.Event) {
+    const obj: any = event.data.object;
+    try {
+      if (event.type === 'payment_intent.succeeded') {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent;
+        const paymentId = paymentIntent.metadata?.paymentId;
+        const eventId = paymentIntent.metadata?.eventId;
+        const planId = paymentIntent.metadata?.planId;
+
+        if (!paymentId) return;
+
+        await this.prisma.paymentSession.updateMany({
+          where: { stripeSessionId: paymentIntent.id },
+          data: { used: true, status: 'complete' },
+        });
+
+        const record = await this.prisma.payment.update({
+          where: { id: paymentId },
+          data: { status: 'succeeded' },
+        });
+
+        void this.issueInvoiceAfterPayment(record.id);
+
+        if (eventId) {
+          await this.prisma.event.update({
+            where: { id: eventId },
+            data: { isPrivatePaid: true },
+          });
+        } else if (planId) {
+          await this.applyPlanToUser(
+            planId,
+            record.userId,
+            undefined,
+            this.parseCustomLimits(paymentIntent.metadata),
+          );
+        }
+      }
+
+      if (
         event.type === 'customer.subscription.created' ||
         event.type === 'customer.subscription.updated'
       ) {
         const subscription = obj as Stripe.Subscription;
-        console.log(subscription)
+        const userId = subscription.metadata?.userId as string | undefined;
+        const planId = subscription.metadata?.planId as string | undefined;
 
-        // Fetch payment linked to subscription
+        if (
+          subscription.status === 'active' ||
+          subscription.status === 'trialing'
+        ) {
+          if (userId && planId) {
+            await this.cancelOtherActiveSubscriptions(
+              userId,
+              subscription.id,
+            );
+            await this.applyPlanToUser(planId, userId, subscription.id);
+            await this.syncPaymentSubscription(
+              userId,
+              planId,
+              subscription.id,
+            );
+          }
+        }
+
         const payment = await this.prisma.payment.findFirst({
           where: { stripeSubscriptionId: subscription.id },
         });
 
+        if (
+          subscription.cancel_at ||
+          subscription.status === 'canceled' ||
+          subscription.status === 'unpaid'
+        ) {
+          const ownerId = payment?.userId ?? userId;
+          if (ownerId) {
+            const stillActive = await this.checkActiveSubscription(ownerId);
+            if (!stillActive) {
+              await this.handleSubscriptionCancellation(ownerId);
+            }
+          }
+        }
+      }
+
+      if (event.type === 'customer.subscription.deleted') {
+        const subscription = obj as Stripe.Subscription;
+        const payment = await this.prisma.payment.findFirst({
+          where: { stripeSubscriptionId: subscription.id },
+        });
+        const ownerId =
+          payment?.userId ?? (subscription.metadata?.userId as string);
+        if (ownerId) {
+          const stillActive = await this.checkActiveSubscription(ownerId);
+          if (!stillActive) {
+            await this.handleSubscriptionCancellation(ownerId);
+          }
+        }
+        await this.prisma.payment.updateMany({
+          where: { stripeSubscriptionId: subscription.id },
+          data: { status: 'canceled', stripeSubscriptionId: null },
+        });
+      }
+
+      if (event.type === 'checkout.session.completed') {
+        const session = obj as Stripe.Checkout.Session;
+        if (!session.metadata?.paymentId) return;
+
+        const sessionRecord = await this.prisma.paymentSession.findUnique({
+          where: { stripeSessionId: session.id },
+        });
+        if (!sessionRecord) return;
+
+        await this.prisma.paymentSession.update({
+          where: { id: sessionRecord.id },
+          data: { used: true, status: 'complete', paidAt: new Date() },
+        });
+
+        const record = await this.prisma.payment.update({
+          where: { id: sessionRecord.paymentId },
+          data: {
+            status: 'succeeded',
+            ...(session.subscription
+              ? {
+                  stripeSubscriptionId: session.subscription as string,
+                }
+              : {}),
+          },
+        });
+
+        const eventId = session.metadata?.eventId;
+        const planId = session.metadata?.planId;
+
+        if (session.mode === 'payment') {
+          if (eventId) {
+            await this.prisma.event.update({
+              where: { id: eventId },
+              data: { isPrivatePaid: true },
+            });
+          } else if (planId) {
+            await this.applyPlanToUser(
+              planId,
+              record.userId,
+              undefined,
+              this.parseCustomLimits(session.metadata ?? {}),
+            );
+          }
+        }
+
+        if (session.mode === 'subscription' && planId) {
+          const subId =
+            typeof session.subscription === 'string'
+              ? session.subscription
+              : session.subscription?.id;
+          if (subId) {
+            await this.cancelOtherActiveSubscriptions(record.userId, subId);
+          }
+          await this.applyPlanToUser(planId, record.userId, subId);
+        }
+
+        void this.issueInvoiceAfterPayment(record.id);
+      }
+
+      if (event.type === 'invoice.payment_succeeded') {
+        const invoice = obj as Stripe.Invoice;
+        const subscriptionId = invoice.parent?.subscription_details
+          ?.subscription as string;
+        if (!subscriptionId) return;
+
+        const payment = await this.prisma.payment.findFirst({
+          where: { stripeSubscriptionId: subscriptionId },
+        });
         if (!payment) return;
 
-        // Upgrade / Downgrade plan
-        // const newPlanId = subscription.items.data[0].price.id;
-        // if (payment.plan !== newPlanId) {
-        //   await this.prisma.payment.update({
-        //     where: { id: payment.id },
-        //     data: { plan: newPlanId },
-        //   });
+        await this.prisma.payment.update({
+          where: { id: payment.id },
+          data: { status: 'succeeded' },
+        });
 
-        //   // Optionally update user access/features
-        //   await this.prisma.candidate.updateMany({
-        //     where: { userId: payment.userId },
-        //     data: { status: 'active' },
-        //   });
-        // }
+        const fromProduct = payment.productId.match(/^plan_([^_]+)_/);
+        const planId =
+          (invoice.lines?.data[0]?.metadata?.planId as string) ||
+          fromProduct?.[1];
 
-        // Scheduled cancellation or immediate cancel
-        if (subscription.cancel_at || subscription.status === 'canceled') {
-          await this.handleSubscriptionCancellation(payment.userId);
-        }
-      }
-
-    // ----------------------------
-    // CHECKOUT SESSION COMPLETED (optional)
-    // ----------------------------
-    if (event.type === 'checkout.session.completed') {
-      const session = obj as Stripe.Checkout.Session;
-    
-      if (!session.metadata?.paymentId) return;
-      console.log(session.metadata.paymentId)
-
-
-      // 1️⃣ Find the payment session first
-     const sessionRecord = await this.prisma.paymentSession.findUnique({
-      where: { stripeSessionId: session.id },
-    });
-    console.log(sessionRecord)
-
-    if (!sessionRecord) {
-      console.log('No payment session found for session.id:', session.id);
-      return;
-    }
-
-    // Mark session as used
-    await this.prisma.paymentSession.update({
-      where: { id: sessionRecord.id },
-      data: { used: true, status: 'complete' },
-    });
-
-    // Ensure subscription ID is a string
-      const subscriptionId = session.subscription as string | null;
-      console.log('subsId' , subscriptionId)
-
-    // 3️⃣ Update the payment with the subscription ID
-    await this.prisma.payment.update({
-      where: { id: sessionRecord.paymentId },
-      data: { stripeSubscriptionId: subscriptionId },
-    });
-
-
-          console.log('Checkout session completed:', session.id);
-          return;
+        if (planId) {
+          await this.cancelOtherActiveSubscriptions(
+            payment.userId,
+            subscriptionId,
+          );
+          await this.applyPlanToUser(planId, payment.userId, subscriptionId);
         }
 
-    // ----------------------------
-    // INVOICE PAYMENT SUCCEEDED
-    // ----------------------------
-    if (event.type === 'invoice.payment_succeeded') {
-      const invoice = obj as Stripe.Invoice;
-      const subscriptionId = invoice.parent?.subscription_details?.subscription as string
-      console.log(subscriptionId)
-
-      if (!subscriptionId) return;
-      
-
-      const payment = await this.prisma.payment.findFirst({
-        where: { stripeSubscriptionId: subscriptionId },
-      });
-      console.log(payment)
-
-      if (!payment) return;
-
-      const thisd =await this.prisma.payment.update({
-        where: { id: payment.id },
-        data: { status: 'succeeded' },
-      });
-      console.log(thisd)
-      console.log('thiiiiiiiiiiiiiiiiiiiiiiiiiiiiis')
-      // SaaS subscription effect
-      await this.prisma.candidate.update({
-        where: { id: payment.productId }, 
-        data: { status: 'active' },
-      });
-      await  this.prisma.portfolio.update({
-        data : { isPaid : true},
-        where : { userId: payment.userId },
-      })
-      console.log('Subscription payment succeeded for:', subscriptionId);
-      return;
-    }
-  } catch (err) {
-    console.error('Stripe webhook error:', err);
-  }
-}
-
-async checkSession(sessionId: string) {
-  if (!sessionId) throw new BadRequestException('sessionId is required');
-
-  // Vérifie si le token existe déjà
-  const session = await this.prisma.paymentSession.findUnique({
-    where: { token: sessionId },
-  });
-
-  if (session && session.used) {
-    return {
-      used: true,
-      message: 'This payment session has already been used',
-    };
-  } else {
-    return {
-      used: false,
-      clientSecret: null,
-    };
-  }
-}
-
- private async handleSubscriptionCancellation(userId: string) {
-    // Fetch candidate with portfolio
-    const candidate = await this.prisma.candidate.findFirst({
-      where: { userId },
-      include: { user: { include: { portfolio: true } } },
-    });
-
-    if (candidate) {
-      // Delete portfolio if exists
-      if (candidate.user.portfolio) {
-        await this.prisma.portfolio.delete({ where: { userId } });
+        void this.issueInvoiceAfterPayment(payment.id);
       }
-
-      // Delete candidate profile
-      await this.prisma.candidate.delete({ where: { id: candidate.id } });
+    } catch (err) {
+      console.error('Stripe webhook error:', err);
     }
+  }
 
-    // Downgrade user model
+  private async issueInvoiceAfterPayment(paymentId: string): Promise<void> {
+    try {
+      await this.paymentInvoiceService.issueForPayment(paymentId, {
+        sendEmail: true,
+        includePdfBase64: false,
+      });
+    } catch (err) {
+      console.error(`Invoice generation failed for ${paymentId}:`, err);
+    }
+  }
+
+  private parseCustomLimits(
+    metadata: Stripe.Metadata | Record<string, string | undefined> | null,
+  ): { maxEvents: number; maxEmails: number } | null {
+    if (!metadata) return null;
+    const maxEvents = Number(metadata.maxEvents);
+    const maxEmails = Number(metadata.maxEmails);
+    if (!Number.isFinite(maxEvents) || !Number.isFinite(maxEmails)) {
+      return null;
+    }
+    return { maxEvents, maxEmails };
+  }
+
+  private async applyPlanToUser(
+    planId: string,
+    userId?: string,
+    keepSubscriptionId?: string,
+    customLimits?: { maxEvents: number; maxEmails: number } | null,
+  ) {
+    const plan = await this.prisma.plan.findUnique({ where: { id: planId } });
+    if (!plan || !userId) return;
+
+    await this.cancelOtherActiveSubscriptions(userId, keepSubscriptionId);
+
+    const isCustom = isCustomPlanTier(plan.tier);
+
     await this.prisma.user.update({
       where: { id: userId },
-      data: { model: 'STANDARD' , subscription : "FREE" },
+      data: {
+        plan: plan.tier,
+        maxEventsOverride:
+          isCustom && customLimits ? customLimits.maxEvents : null,
+        maxGuestsOverride: null,
+        maxEmailsOverride:
+          isCustom && customLimits ? customLimits.maxEmails : null,
+      },
+    });
+
+    await this.salonLifecycle.deleteSalonIfPlanRevoked(
+      userId,
+      plan.tier,
+      plan.price,
+    );
+
+    await this.pruneUserEventsToPlanLimit(userId, plan);
+  }
+
+  /** Remove oldest events when the user exceeds the new plan limit. */
+  private async pruneUserEventsToPlanLimit(
+    userId: string,
+    plan: { maxEvents: number | null },
+  ) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) return;
+
+    const maxEvents = user.maxEventsOverride ?? plan.maxEvents ?? 1;
+    const count = await this.prisma.event.count({ where: { userId } });
+    if (count <= maxEvents) return;
+
+    const excess = count - maxEvents;
+    const oldest = await this.prisma.event.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+      take: excess,
+      select: { id: true },
+    });
+
+    if (oldest.length === 0) return;
+
+    await this.prisma.event.deleteMany({
+      where: { id: { in: oldest.map((e) => e.id) } },
     });
   }
 
+  /** Marque les anciens paiements plan comme annulés et lie le nouvel abonnement */
+  private async syncPaymentSubscription(
+    userId: string,
+    planId: string,
+    stripeSubscriptionId: string,
+  ) {
+    const productId = `plan_${planId}_${userId}`;
+    await this.prisma.payment.updateMany({
+      where: {
+        userId,
+        productId: { startsWith: 'plan_' },
+        NOT: { productId },
+      },
+      data: { status: 'canceled', stripeSubscriptionId: null },
+    });
 
-async checkActiveSubscription(userId: string) {
-  const user = await this.prisma.user.findUnique({ where: { id: userId } });
-  if (!user || !user.stripeCustomerId) return false;
+    await this.prisma.payment.updateMany({
+      where: { userId, productId },
+      data: { status: 'succeeded', stripeSubscriptionId },
+    });
+  }
 
-  const subscriptions = await this.stripe.subscriptions.list({
-    customer: user.stripeCustomerId,
-    status: 'active',
-  });
-  return subscriptions.data.length > 0;
-}
+  private async listActiveSubscriptionsForCustomer(
+    customerId: string,
+  ): Promise<Stripe.Subscription[]> {
+    const statuses: Stripe.SubscriptionListParams.Status[] = [
+      'active',
+      'trialing',
+      'past_due',
+    ];
+    const results = await Promise.all(
+      statuses.map((status) =>
+        this.stripe.subscriptions.list({
+          customer: customerId,
+          status,
+          limit: 100,
+        }),
+      ),
+    );
+    const byId = new Map<string, Stripe.Subscription>();
+    for (const list of results) {
+      for (const sub of list.data) {
+        byId.set(sub.id, sub);
+      }
+    }
+    return [...byId.values()];
+  }
 
+  /**
+   * Un seul abonnement actif par client — résilie les autres chez Stripe.
+   */
+  private async cancelOtherActiveSubscriptions(
+    userId: string,
+    keepSubscriptionId?: string,
+  ): Promise<void> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.stripeCustomerId) return;
 
+    const subs = await this.listActiveSubscriptionsForCustomer(
+      user.stripeCustomerId,
+    );
 
-  // ----------------------------
-  // 3️⃣ Résiliation (optionnel)
-  // ----------------------------
-  async cancelSubscription(subscriptionId: string) {
-    // const canceled = await this.stripe.subscriptions.del(subscriptionId);
-    // // tu peux aussi mettre à jour le Payment record correspondant si tu veux
-    // return { subscriptionId: canceled.id, status: canceled.status };
+    for (const sub of subs) {
+      if (keepSubscriptionId && sub.id === keepSubscriptionId) {
+        continue;
+      }
+      try {
+        await this.stripe.subscriptions.cancel(sub.id);
+      } catch (err) {
+        console.error(`Failed to cancel subscription ${sub.id}:`, err);
+      }
+      await this.prisma.payment.updateMany({
+        where: { stripeSubscriptionId: sub.id, userId },
+        data: { status: 'canceled', stripeSubscriptionId: null },
+      });
+    }
+  }
+
+  async checkSession(sessionId: string) {
+    if (!sessionId) throw new BadRequestException('sessionId is required');
+
+    const session = await this.prisma.paymentSession.findUnique({
+      where: { token: sessionId },
+    });
+
+    if (session?.used) {
+      return {
+        used: true,
+        message: 'This payment session has already been used',
+      };
+    }
+    return { used: false, clientSecret: null };
+  }
+
+  /** After Stripe Checkout redirect — verify cs_… session id */
+  async verifyCheckoutSession(checkoutSessionId: string, userId?: string) {
+    if (!checkoutSessionId?.startsWith('cs_')) {
+      throw new BadRequestException('Invalid checkout session id');
+    }
+
+    const stripeSession = await this.stripe.checkout.sessions.retrieve(
+      checkoutSessionId,
+    );
+
+    const local = await this.prisma.paymentSession.findUnique({
+      where: { stripeSessionId: checkoutSessionId },
+      include: { payment: true },
+    });
+
+    if (userId && local?.payment?.userId && local.payment.userId !== userId) {
+      throw new BadRequestException('Session does not belong to this user');
+    }
+
+    const paid =
+      stripeSession.status === 'complete' &&
+      (stripeSession.payment_status === 'paid' ||
+        stripeSession.payment_status === 'no_payment_required');
+
+    const status: 'succeeded' | 'pending' | 'failed' | 'cancelled' = paid
+      ? 'succeeded'
+      : stripeSession.status === 'expired'
+        ? 'failed'
+        : stripeSession.status === 'open'
+          ? 'pending'
+          : 'cancelled';
+
+    const planId =
+      stripeSession.metadata?.planId ??
+      local?.payment?.productId.match(/^plan_([^_]+)_/)?.[1] ??
+      null;
+    const eventId = stripeSession.metadata?.eventId;
+    const ownerId = userId ?? local?.payment?.userId;
+
+    if (paid && local?.payment && ownerId) {
+      await this.prisma.paymentSession.update({
+        where: { id: local.id },
+        data: { used: true, status: 'complete', paidAt: new Date() },
+      });
+
+      await this.prisma.payment.update({
+        where: { id: local.payment.id },
+        data: {
+          status: 'succeeded',
+          ...(stripeSession.subscription
+            ? { stripeSubscriptionId: stripeSession.subscription as string }
+            : {}),
+        },
+      });
+
+      if (stripeSession.mode === 'payment') {
+        if (eventId) {
+          await this.prisma.event.update({
+            where: { id: eventId },
+            data: { isPrivatePaid: true },
+          });
+        } else if (planId) {
+          await this.applyPlanToUser(planId, ownerId);
+        }
+      }
+
+      if (stripeSession.mode === 'subscription' && planId) {
+        const subId =
+          typeof stripeSession.subscription === 'string'
+            ? stripeSession.subscription
+            : stripeSession.subscription?.id;
+        if (subId) {
+          await this.cancelOtherActiveSubscriptions(ownerId, subId);
+        }
+        await this.applyPlanToUser(planId, ownerId, subId);
+      }
+    }
+
+    let invoice: PaymentInvoiceResponse | null = null;
+    if (paid && local?.payment?.id) {
+      invoice = await this.paymentInvoiceService.issueForPayment(
+        local.payment.id,
+        { sendEmail: false, includePdfBase64: true },
+      );
+    }
+
+    return {
+      status,
+      planId,
+      paymentStatus: stripeSession.payment_status,
+      mode: stripeSession.mode,
+      invoice,
+    };
+  }
+
+  async downloadInvoicePdf(paymentId: string, userId: string) {
+    return this.paymentInvoiceService.getInvoicePdfForUser(paymentId, userId);
+  }
+
+  private async handleSubscriptionCancellation(userId: string) {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        plan: PlanTier.LITE,
+        maxEventsOverride: null,
+        maxGuestsOverride: null,
+        maxEmailsOverride: null,
+      },
+    });
+
+    await this.salonLifecycle.deleteSalonForUser(userId);
+  }
+
+  async checkActiveSubscription(userId: string) {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.stripeCustomerId) return false;
+
+    const subs = await this.listActiveSubscriptionsForCustomer(
+      user.stripeCustomerId,
+    );
+    return subs.length > 0;
+  }
+
+  private async resolveUserSubscription(
+    userId: string,
+    subscriptionId?: string,
+  ): Promise<{ subscription: Stripe.Subscription; customerId: string }> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.stripeCustomerId) {
+      throw new BadRequestException('NO_STRIPE_CUSTOMER');
+    }
+
+    if (subscriptionId) {
+      const subscription =
+        await this.stripe.subscriptions.retrieve(subscriptionId);
+      const customerId =
+        typeof subscription.customer === 'string'
+          ? subscription.customer
+          : subscription.customer.id;
+      if (customerId !== user.stripeCustomerId) {
+        throw new BadRequestException('SUBSCRIPTION_NOT_FOUND');
+      }
+      return { subscription, customerId: user.stripeCustomerId };
+    }
+
+    const activeSubs = await this.listActiveSubscriptionsForCustomer(
+      user.stripeCustomerId,
+    );
+    if (activeSubs.length === 0) {
+      throw new BadRequestException('NO_ACTIVE_SUBSCRIPTION');
+    }
+
+    return { subscription: activeSubs[0], customerId: user.stripeCustomerId };
+  }
+
+  async cancelSubscriptionForUser(
+    userId: string,
+    options?: { subscriptionId?: string; immediately?: boolean },
+  ) {
+    const { subscription } = await this.resolveUserSubscription(
+      userId,
+      options?.subscriptionId,
+    );
+
+    if (options?.immediately) {
+      await this.stripe.subscriptions.cancel(subscription.id);
+      await this.prisma.payment.updateMany({
+        where: { stripeSubscriptionId: subscription.id, userId },
+        data: { status: 'canceled', stripeSubscriptionId: null },
+      });
+
+      const stillActive = await this.checkActiveSubscription(userId);
+      if (!stillActive) {
+        await this.handleSubscriptionCancellation(userId);
+      }
+
+      return {
+        subscriptionId: subscription.id,
+        canceled: true,
+        cancelAtPeriodEnd: false,
+      };
+    }
+
+    const updated = await this.stripe.subscriptions.update(subscription.id, {
+      cancel_at_period_end: true,
+    });
+
+    return {
+      subscriptionId: updated.id,
+      canceled: false,
+      cancelAtPeriodEnd: true,
+      currentPeriodEnd: updated.cancel_at ?? null,
+    };
+  }
+
+  async changeSubscription(userId: string, planId: string) {
+    const plan = await this.resolvePlan(planId);
+    const stripePriceId = await this.ensureStripePriceId(plan);
+    const { subscription } = await this.resolveUserSubscription(userId);
+
+    await this.cancelOtherActiveSubscriptions(userId, subscription.id);
+
+    const item = subscription.items.data[0];
+    if (!item?.id) {
+      throw new BadRequestException('SUBSCRIPTION_ITEM_NOT_FOUND');
+    }
+
+    const currentPriceId =
+      typeof item.price === 'string' ? item.price : item.price?.id;
+    if (currentPriceId === stripePriceId) {
+      throw new BadRequestException('PLAN_ALREADY_ACTIVE');
+    }
+
+    const updated = await this.stripe.subscriptions.update(subscription.id, {
+      items: [{ id: item.id, price: stripePriceId }],
+      proration_behavior: 'create_prorations',
+      metadata: {
+        userId,
+        planId: plan.id,
+        paymentId: subscription.metadata?.paymentId ?? '',
+      },
+    });
+
+    await this.applyPlanToUser(plan.id, userId, updated.id);
+    await this.syncPaymentSubscription(userId, plan.id, updated.id);
+
+    return {
+      subscriptionId: updated.id,
+      planId: plan.id,
+      tier: plan.tier,
+    };
   }
 }

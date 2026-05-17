@@ -1,93 +1,160 @@
-import { Controller, Post, Body, Get, Req, Res, Headers, UseGuards, Query, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Post,
+  Body,
+  Get,
+  Req,
+  Res,
+  Headers,
+  UseGuards,
+  Query,
+  Param,
+  BadRequestException,
+  StreamableFile,
+} from '@nestjs/common';
 import { StripeService } from './stripe.service';
-import { CreatePaymentDto, CreateSubscriptionDto } from './dto/create-subscription.dto';
+import {
+  CancelSubscriptionDto,
+  ChangeSubscriptionDto,
+  CreatePaymentDto,
+  CreateSubscriptionDto,
+} from './dto/create-subscription.dto';
 import Stripe from 'stripe';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { Throttle } from '@nestjs/throttler';
 
-
-
 @Controller('stripe')
 export class StripeController {
   constructor(private readonly stripeService: StripeService) {}
-  @UseGuards(JwtAuthGuard)
-  @Throttle({ default: { limit: 8, ttl:  86400000 } })
-  @Post('create-payment-intent')
-  async pay(@Body() dto: CreatePaymentDto , @Req() req) 
-  {
-    const userId = req.user.id
-    return this.stripeService.createPaymentIntent(userId, dto.productId, dto.amount, dto.currency, dto.type);
+
+  /** Public catalog (pricing page) */
+  @Get('plans')
+  listPlans() {
+    return this.stripeService.listPlans();
   }
 
   @UseGuards(JwtAuthGuard)
-  @Throttle({ default: { limit: 6, ttl:  86400000 } })
-  
+  @Get('plan-details')
+  planDetails(@Req() req) {
+    return this.stripeService.getPlanDetails(req.user.id);
+  }
+
+
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 8, ttl: 86400000 } })
+  @Post('create-payment-intent')
+  async pay(@Body() dto: CreatePaymentDto, @Req() req) {
+    const userId = req.user.id;
+    return this.stripeService.createPaymentIntent(
+      userId,
+      dto.planId,
+      dto.amount,
+      dto.currency,
+      dto.eventId,
+      dto.maxEvents,
+      dto.maxEmails,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 6, ttl: 86400000 } })
   @Post('create-subscription')
   async subscribe(@Body() dto: CreateSubscriptionDto, @Req() req) {
-    const userId = req.user.id
-    return this.stripeService.createSubscription( userId, dto.productId, dto.priceId , dto.type);
+    const userId = req.user.id;
+    return this.stripeService.createSubscription(userId, dto.planId);
   }
+
   @UseGuards(JwtAuthGuard)
   @Get('manage')
   async manage(@Req() req) {
     const userId = req.user.id;
-    const session = await this.stripeService.createCustomerPortalSession(userId);
-    return session;
+    return this.stripeService.createCustomerPortalSession(userId);
   }
 
+  @UseGuards(JwtAuthGuard)
+  @Post('cancel-subscription')
+  cancelSubscription(@Body() dto: CancelSubscriptionDto, @Req() req) {
+    return this.stripeService.cancelSubscriptionForUser(req.user.id, {
+      subscriptionId: dto.subscriptionId,
+      immediately: dto.immediately,
+    });
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 6, ttl: 86400000 } })
+  @Post('change-subscription')
+  changeSubscription(@Body() dto: ChangeSubscriptionDto, @Req() req) {
+    return this.stripeService.changeSubscription(req.user.id, dto.planId);
+  }
 
   @Post('webhook')
   async handleWebhook(
     @Req() req,
     @Res() res,
-    @Headers('stripe-signature') signature: string
+    @Headers('stripe-signature') signature: string,
   ) {
-    
-    console.log('stripe ?')
     const stripe = this.stripeService.getStripeInstance();
-    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET!;
-    
+    const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    if (!endpointSecret) {
+      throw new BadRequestException('STRIPE_WEBHOOK_SECRET is not configured');
+    }
+    if (!signature) {
+      return res.status(400).send('Missing stripe-signature header');
+    }
+
+    const rawBody: Buffer | undefined =
+      req.rawBody ?? (Buffer.isBuffer(req.body) ? req.body : undefined);
+    if (!rawBody) {
+      return res.status(400).send('Missing raw body for webhook verification');
+    }
 
     let event: Stripe.Event;
-
     try {
-      event = stripe.webhooks.constructEvent(req.body, signature, endpointSecret);
-      const obj: any = event.data.object;
-
-const metadata =
-  obj?.metadata ||
-  obj?.subscription_details?.metadata ||
-  null;
-
-console.log({
-  eventType: event.type,
-  metadata,
-});
-
-
-      
+      event = stripe.webhooks.constructEvent(
+        rawBody,
+        signature,
+        endpointSecret,
+      );
     } catch (err: any) {
       console.error('Webhook signature verification failed:', err.message);
       return res.status(400).send(`Webhook Error: ${err.message}`);
     }
 
     try {
-      const resu =await this.stripeService.handleWebhook(event);
-      // console.log(resu)
-      res.json({ received: true });
+      await this.stripeService.handleWebhook(event);
+      return res.json({ received: true });
     } catch (err) {
       console.error('Error processing webhook:', err);
-      res.status(500).send('Webhook handler error');
+      return res.status(500).send('Webhook handler error');
     }
   }
- 
+
   @UseGuards(JwtAuthGuard)
   @Get('check-payment-session')
   async checkSessionEndpoint(@Query('sessionId') sessionId: string) {
-    console.log('sessionchel')
-  const res =await this.stripeService.checkSession(sessionId)
-  return res
-}
+    return this.stripeService.checkSession(sessionId);
+  }
 
+  @UseGuards(JwtAuthGuard)
+  @Get('verify-checkout')
+  verifyCheckout(@Query('session_id') sessionId: string, @Req() req) {
+    return this.stripeService.verifyCheckoutSession(sessionId, req.user.id);
+  }
 
+  /** Télécharger la facture PDF (référence + offre + date) */
+  @UseGuards(JwtAuthGuard)
+  @Get('invoice/:paymentId')
+  async downloadInvoice(
+    @Param('paymentId') paymentId: string,
+    @Req() req,
+    @Res({ passthrough: true }) res,
+  ) {
+    const { buffer, filename } =
+      await this.stripeService.downloadInvoicePdf(paymentId, req.user.id);
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return new StreamableFile(buffer);
+  }
 }

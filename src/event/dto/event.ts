@@ -1,12 +1,60 @@
-import { Type } from "class-transformer";
-import { IsString, IsOptional, IsArray, ValidateNested, IsBoolean, isString, IsEmail, IsNumber } from "class-validator";
+import { Transform, Type } from 'class-transformer';
+import {
+  IsString,
+  IsOptional,
+  IsArray,
+  ValidateNested,
+  IsBoolean,
+  IsEmail,
+  IsNumber,
+  Max,
+  Min,
+} from 'class-validator';
+
+/** Multipart form-data sends JSON fields and booleans as strings */
+function parseJsonField<T>(value: unknown): T | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value === 'object') {
+    return value as T;
+  }
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as T;
+    } catch {
+      return undefined;
+    }
+  }
+  return undefined;
+}
+
+function parseJsonArray<T>(value: unknown): T[] | undefined {
+  const parsed = parseJsonField<T[]>(value);
+  return Array.isArray(parsed) ? parsed : undefined;
+}
+
+function parseFormBoolean(value: unknown): boolean | undefined {
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (typeof value === 'string') {
+    return value.toLowerCase() === 'true';
+  }
+  return Boolean(value);
+}
 
 class LinkDto {
+  @IsOptional()
   @IsString()
-  title: string;
+  title?: string;
 
+  @IsOptional()
   @IsString()
-  url: string;
+  url?: string;
 }
 
 class ParticipantDto {
@@ -29,8 +77,15 @@ export class CreateEventDto {
   title: string;
 
   @IsOptional()
-  @IsNumber()
   @Type(() => Number)
+  @Transform(({ value }) =>
+    value === '' || value === undefined || value === null
+      ? undefined
+      : Number(value),
+  )
+  @Min(1)
+  @Max(1000)
+  @IsNumber()
   capacity?: number;
 
   @IsString()
@@ -64,6 +119,7 @@ export class CreateEventDto {
   visibility?: string;
 
   @IsOptional()
+  @Transform(({ value }) => parseFormBoolean(value))
   @IsBoolean()
   isPrivate?: boolean;
 
@@ -80,18 +136,21 @@ export class CreateEventDto {
   pageUrl?: string;
 
   @IsOptional()
+  @Transform(({ value }) => parseJsonArray<LinkDto>(value) ?? [])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => LinkDto)
   links?: LinkDto[];
 
   @IsOptional()
+  @Transform(({ value }) => parseJsonArray<ParticipantDto>(value) ?? [])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => ParticipantDto)
   participants?: ParticipantDto[];
 
   @IsOptional()
+  @Transform(({ value }) => parseJsonArray<InstructionDto>(value) ?? [])
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => InstructionDto)

@@ -9,6 +9,8 @@ import {
   Post,
   Query,
   Req,
+  Res,
+  Headers,
   UploadedFile,
   UseGuards,
   UseInterceptors,
@@ -23,7 +25,7 @@ import { CreateEventDto, JoinEventDTO } from './dto/event';
 import { JwtAuthGuard } from 'src/auth/jwt-auth.guard';
 import { ApiKeyGuard } from 'src/common/decorators/api-key.guard';
 import { ApiKeyProtected } from 'src/common/decorators/api-key-decorator';
-import { Express } from 'express';
+import { Express, Response } from 'express';
 
 import { SkipThrottle, Throttle, ThrottlerGuard } from '@nestjs/throttler';
 
@@ -75,6 +77,32 @@ export class EventController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @Throttle({ default: { limit: 5, ttl: 3600000 } })
+  @Post(':category/:slug/invite-csv')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: multer.memoryStorage(),
+      limits: { fileSize: 2 * 1024 * 1024 },
+    }),
+  )
+  async inviteBulkFromCsv(
+    @Req() req,
+    @Param('category') category: string,
+    @Param('slug') slug: string,
+    @UploadedFile() file: Express.Multer.File,
+    @Body('accessCode') accessCode?: string,
+    @Headers('x-api-key') apiKey?: string,
+  ) {
+    return this.eventService.inviteBulkFromCsv(
+      req.user.id,
+      category,
+      slug,
+      file,
+      accessCode ?? apiKey,
+    );
+  }
+
+  @UseGuards(JwtAuthGuard)
   @Patch('privacy/:slug')
   async updatePrivacy(
     @Req() req,
@@ -109,7 +137,7 @@ export class EventController {
   @ApiKeyProtected({
     table: 'event',
     field: 'accessCode',
-    lookup: ['category', 'slug'],
+    lookup: ['slug'],
   })
   @Get('access/:category/:slug')
   async getOnePrivate(
@@ -181,10 +209,29 @@ export class EventController {
     const updated = await this.eventService.confirmJoiningEvent(
       category,
       slug,
-      email,
+      decodeURIComponent(email),
       confirmBool,
     );
     return updated;
+  }
+
+  /** Email one-click: API confirms RSVP then redirects to frontend (dev → localhost) */
+  @Get('confirm-join/:category/:slug/:email/:confirm')
+  async confirmJoiningRedirect(
+    @Param('category') category: string,
+    @Param('slug') slug: string,
+    @Param('email') email: string,
+    @Param('confirm') confirm: string,
+    @Res() res: Response,
+  ) {
+    const confirmBool = confirm === 'true';
+    const redirectUrl = await this.eventService.confirmJoiningEventAndRedirect(
+      category,
+      slug,
+      decodeURIComponent(email),
+      confirmBool,
+    );
+    return res.redirect(302, redirectUrl);
   }
 
   @UseGuards(JwtAuthGuard)
