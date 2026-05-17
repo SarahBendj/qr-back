@@ -10,6 +10,7 @@ CREATE TABLE "SalonProfile" (
     "faviconKey" TEXT,
     "bannerKeys" TEXT[] DEFAULT ARRAY[]::TEXT[],
     "accentColor" TEXT DEFAULT '#a855f7',
+    "accentColor2" TEXT DEFAULT '#ec4899',
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
 

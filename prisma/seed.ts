@@ -68,6 +68,7 @@ const plans = [
 ];
 
 async function main() {
+  // Legacy tiers removed by enum migration — safe no-op if already clean.
   await prisma.plan.deleteMany({
     where: {
       tier: { notIn: [PlanTier.LITE, PlanTier.GROWTH, PlanTier.BUSINESS] },
@@ -75,26 +76,27 @@ async function main() {
   });
 
   for (const plan of plans) {
+    const { stripePriceId, ...catalog } = plan;
     await prisma.plan.upsert({
       where: { tier: plan.tier },
-      create: plan,
+      create: {
+        ...catalog,
+        ...(stripePriceId ? { stripePriceId } : {}),
+      },
       update: {
-        name: plan.name,
-        description: plan.description,
-        price: plan.price,
-        currency: plan.currency,
-        interval: plan.interval,
-        intervalCount: plan.intervalCount,
-        maxEvents: plan.maxEvents,
-        maxGuests: plan.maxGuests,
-        maxEmails: plan.maxEmails,
-        features: plan.features,
-        ...(plan.stripePriceId
-          ? { stripePriceId: plan.stripePriceId }
-          : {}),
+        ...catalog,
+        ...(stripePriceId ? { stripePriceId } : {}),
       },
     });
   }
+
+  const count = await prisma.plan.count();
+  if (count < 3) {
+    throw new Error(
+      `Expected 3 plans (LITE, GROWTH, BUSINESS) but found ${count}. Check migrations.`,
+    );
+  }
+
   console.log('Plans seeded:', plans.map((p) => p.tier).join(', '));
 }
 
