@@ -265,7 +265,7 @@ export class StripeService {
     planActive: boolean;
   }> {
     const [hasActiveSubscription, succeededPlanPayment] = await Promise.all([
-      this.checkActiveSubscription(userId),
+      this.checkPaidSubscriptionEntitlement(userId),
       this.prisma.payment.findFirst({
         where: {
           userId,
@@ -306,7 +306,7 @@ export class StripeService {
       await Promise.all([
         this.listPlans(),
         this.prisma.event.count({ where: { userId } }),
-        this.checkActiveSubscription(userId),
+        this.checkPaidSubscriptionEntitlement(userId),
         this.prisma.payment.findFirst({
           where: {
             userId,
@@ -844,6 +844,32 @@ export class StripeService {
     });
   }
 
+  /** Subscriptions that grant plan access (paid / trialing only — not past_due). */
+  private async listPaidEntitledSubscriptionsForCustomer(
+    customerId: string,
+  ): Promise<Stripe.Subscription[]> {
+    const statuses: Stripe.SubscriptionListParams.Status[] = [
+      'active',
+      'trialing',
+    ];
+    const results = await Promise.all(
+      statuses.map((status) =>
+        this.stripe.subscriptions.list({
+          customer: customerId,
+          status,
+          limit: 100,
+        }),
+      ),
+    );
+    const byId = new Map<string, Stripe.Subscription>();
+    for (const list of results) {
+      for (const sub of list.data) {
+        byId.set(sub.id, sub);
+      }
+    }
+    return [...byId.values()];
+  }
+
   private async listActiveSubscriptionsForCustomer(
     customerId: string,
   ): Promise<Stripe.Subscription[]> {
@@ -1041,6 +1067,17 @@ export class StripeService {
     if (!user?.stripeCustomerId) return false;
 
     const subs = await this.listActiveSubscriptionsForCustomer(
+      user.stripeCustomerId,
+    );
+    return subs.length > 0;
+  }
+
+  /** Plan entitlement: active or trialing subscription only (excludes past_due). */
+  async checkPaidSubscriptionEntitlement(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user?.stripeCustomerId) return false;
+
+    const subs = await this.listPaidEntitledSubscriptionsForCustomer(
       user.stripeCustomerId,
     );
     return subs.length > 0;

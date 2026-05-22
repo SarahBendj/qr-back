@@ -1,7 +1,7 @@
 const SALON_SUFFIX =
   process.env.SALON_HOST_SUFFIX?.trim().replace(/^\./, '') ??
   process.env.NEXT_PUBLIC_SALON_HOST_SUFFIX?.trim().replace(/^\./, '') ??
-  'smartqr.pro';
+  'smart-qr.pro';
 
 const SALON_PROTOCOL = process.env.NEXT_PUBLIC_SALON_PROTOCOL?.trim() || 'https';
 
