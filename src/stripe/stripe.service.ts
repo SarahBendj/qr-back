@@ -137,6 +137,10 @@ export class StripeService {
     intervalCount: number;
     stripePriceId: string | null;
   }): Promise<string> {
+    if (plan.price <= 0) {
+      throw new BadRequestException('FREE_PLAN_NO_STRIPE_CHECKOUT');
+    }
+
     if (plan.stripePriceId) return plan.stripePriceId;
 
     const envPriceIds: Record<PlanTier, string | undefined> = {
@@ -448,6 +452,11 @@ export class StripeService {
 
   async createSubscription(userId: string, planId: string) {
     const plan = await this.resolvePlan(planId);
+
+    if (plan.price === 0) {
+      return this.activateFreePlan(userId, plan);
+    }
+
     const stripePriceId = await this.ensureStripePriceId(plan);
 
     const { customerId } = await this.getOrCreateStripeCustomer(userId);
@@ -458,6 +467,10 @@ export class StripeService {
     );
     if (alreadyOnThisPlan) {
       throw new BadRequestException('PLAN_ALREADY_ACTIVE');
+    }
+
+    if (activeSubs.length > 0) {
+      return this.changeSubscription(userId, planId);
     }
 
     const type = PaymentType.event;
@@ -485,33 +498,55 @@ export class StripeService {
       });
     }
 
-    const session = await this.stripe.checkout.sessions.create({
-      mode: 'subscription',
-      customer: customerId,
-      ...this.checkoutPaymentSettings(),
-      ...this.checkoutUrls(),
-      locale: 'auto',
-      billing_address_collection: 'required',
-      line_items: [{ price: stripePriceId, quantity: 1 }],
-      metadata: { paymentId: payment.id, planId: plan.id, userId },
-      subscription_data: {
-        metadata: { paymentId: payment.id, planId: plan.id, userId },
-      },
-    });
+    const checkout = await this.createSubscriptionCheckoutSession(
+      userId,
+      plan,
+      customerId,
+      payment.id,
+    );
+    return { url: checkout.url };
+  }
 
-    await this.prisma.paymentSession.create({
-      data: {
-        paymentId: payment.id,
-        stripeSessionId: session.id,
-        status: 'pending',
-        type,
-      },
-    });
-
-    if (!session.url) {
-      throw new BadRequestException('Stripe did not return a checkout URL');
+  /** Activate a $0 catalog plan without Stripe checkout */
+  private async activateFreePlan(
+    userId: string,
+    plan: {
+      id: string;
+      tier: PlanTier;
+      price: number;
+      currency: string;
+    },
+  ) {
+    if (plan.price !== 0) {
+      throw new BadRequestException('Plan is not free');
     }
-    return { url: session.url };
+
+    const productId = `plan_${plan.id}_${userId}`;
+    let payment = await this.prisma.payment.findUnique({ where: { productId } });
+
+    if (!payment) {
+      payment = await this.prisma.payment.create({
+        data: {
+          productId,
+          amount: 0,
+          currency: plan.currency.toLowerCase(),
+          type: PaymentType.event,
+          status: 'succeeded',
+          user: { connect: { id: userId } },
+        },
+      });
+    } else if (payment.status !== 'succeeded') {
+      payment = await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'succeeded', amount: 0 },
+      });
+    }
+
+    await this.applyPlanToUser(plan.id, userId);
+
+    return {
+      url: `${this.frontendBase()}/payment/success?free=1&plan=${plan.tier}`,
+    };
   }
 
   async createCustomerPortalSession(userId: string) {
@@ -1155,12 +1190,72 @@ export class StripeService {
     };
   }
 
+  /** Stripe Checkout for a recurring catalog plan (new sub or plan change). */
+  private async createSubscriptionCheckoutSession(
+    userId: string,
+    plan: {
+      id: string;
+      price: number;
+      currency: string;
+    },
+    customerId: string,
+    paymentId: string,
+    options?: { planChange?: boolean },
+  ): Promise<{ url: string }> {
+    const stripePriceId = await this.ensureStripePriceId(plan as any);
+    const type = PaymentType.event;
+
+    const session = await this.stripe.checkout.sessions.create({
+      mode: 'subscription',
+      customer: customerId,
+      ...this.checkoutPaymentSettings(),
+      ...this.checkoutUrls(),
+      locale: 'auto',
+      billing_address_collection: 'required',
+      line_items: [{ price: stripePriceId, quantity: 1 }],
+      metadata: {
+        paymentId,
+        planId: plan.id,
+        userId,
+        ...(options?.planChange ? { planChange: 'true' } : {}),
+      },
+      subscription_data: {
+        metadata: { paymentId, planId: plan.id, userId },
+      },
+    });
+
+    await this.prisma.paymentSession.create({
+      data: {
+        paymentId,
+        stripeSessionId: session.id,
+        status: 'pending',
+        type,
+      },
+    });
+
+    if (!session.url) {
+      throw new BadRequestException('Stripe did not return a checkout URL');
+    }
+
+    return { url: session.url };
+  }
+
   async changeSubscription(userId: string, planId: string) {
     const plan = await this.resolvePlan(planId);
-    const stripePriceId = await this.ensureStripePriceId(plan);
-    const { subscription } = await this.resolveUserSubscription(userId);
 
-    await this.cancelOtherActiveSubscriptions(userId, subscription.id);
+    if (plan.price <= 0) {
+      const { subscription } = await this.resolveUserSubscription(userId);
+      await this.stripe.subscriptions.cancel(subscription.id);
+      await this.prisma.payment.updateMany({
+        where: { stripeSubscriptionId: subscription.id, userId },
+        data: { status: 'canceled', stripeSubscriptionId: null },
+      });
+      return this.activateFreePlan(userId, plan);
+    }
+
+    const { subscription, customerId } =
+      await this.resolveUserSubscription(userId);
+    const stripePriceId = await this.ensureStripePriceId(plan);
 
     const item = subscription.items.data[0];
     if (!item?.id) {
@@ -1173,21 +1268,39 @@ export class StripeService {
       throw new BadRequestException('PLAN_ALREADY_ACTIVE');
     }
 
-    const updated = await this.stripe.subscriptions.update(subscription.id, {
-      items: [{ id: item.id, price: stripePriceId }],
-      proration_behavior: 'create_prorations',
-      metadata: {
-        userId,
-        planId: plan.id,
-        paymentId: subscription.metadata?.paymentId ?? '',
-      },
-    });
+    const type = PaymentType.event;
+    const productId = `plan_${plan.id}_${userId}`;
 
-    await this.applyPlanToUser(plan.id, userId, updated.id);
-    await this.syncPaymentSubscription(userId, plan.id, updated.id);
+    let payment = await this.prisma.payment.findUnique({ where: { productId } });
+    if (!payment) {
+      payment = await this.prisma.payment.create({
+        data: {
+          productId,
+          amount: plan.price,
+          currency: plan.currency.toLowerCase(),
+          type,
+          status: 'pending',
+          user: { connect: { id: userId } },
+        },
+      });
+    } else if (payment.status !== 'pending') {
+      payment = await this.prisma.payment.update({
+        where: { id: payment.id },
+        data: { status: 'pending', stripeSubscriptionId: null, amount: plan.price },
+      });
+    }
+
+    const checkout = await this.createSubscriptionCheckoutSession(
+      userId,
+      plan,
+      customerId,
+      payment.id,
+      { planChange: true },
+    );
 
     return {
-      subscriptionId: updated.id,
+      url: checkout.url,
+      subscriptionId: subscription.id,
       planId: plan.id,
       tier: plan.tier,
     };
