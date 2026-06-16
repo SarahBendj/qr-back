@@ -459,19 +459,10 @@ export class SalonService {
 
   getSalonPublicUrl(mark: string): string {
     const m = mark.trim().toLowerCase();
-    const frontend = process.env.FRONTEND_URL?.trim().replace(/\/$/, '');
-
-    if (frontend && /localhost|127\.0\.0\.1/i.test(frontend)) {
-      return `${frontend}/salon/${encodeURIComponent(m)}`;
-    }
-
-    if (process.env.NODE_ENV === 'development' && !process.env.SALON_PUBLIC_HOST) {
-      const port = process.env.FRONTEND_PORT ?? '3001';
-      return `http://localhost:${port}/salon/${encodeURIComponent(m)}`;
-    }
-
-    const baseHost = process.env.SALON_PUBLIC_HOST ?? 'smart-qr.pro';
-    const protocol = process.env.SALON_PUBLIC_PROTOCOL ?? 'https';
-    return `${protocol}://${m}.${baseHost}`;
+    const frontend =
+      process.env.FRONTEND_URL?.trim().replace(/\/$/, '') ||
+      process.env.HOST?.trim().replace(/\/$/, '') ||
+      'https://smart-qr.pro';
+    return `${frontend}/salon/${encodeURIComponent(m)}`;
   }
 }
