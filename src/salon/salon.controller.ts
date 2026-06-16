@@ -17,6 +17,7 @@ import * as multer from 'multer';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { SalonService } from './salon.service';
 import { UpdateSalonDto } from './dto/update-salon.dto';
+import { ReorderBannersDto } from './dto/reorder-banners.dto';
 
 @Controller('salon')
 export class SalonController {
@@ -61,6 +62,15 @@ export class SalonController {
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.salonService.addBanner(req.user.id, file);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch('banners/reorder')
+  reorderBanners(
+    @Req() req: { user: { id: string } },
+    @Body() dto: ReorderBannersDto,
+  ) {
+    return this.salonService.reorderBanners(req.user.id, dto.order);
   }
 
   @UseGuards(JwtAuthGuard)

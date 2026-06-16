@@ -1,7 +1,5 @@
-import {
-  buildSalonEventAbsoluteUrl,
-  buildSalonEventConfirmUrl,
-} from '../../src/salon/salon-event-url';
+import { normalizeEventCategory } from '../../src/event/event-lookup';
+import { buildSalonEventAbsoluteUrl } from '../../src/salon/salon-event-url';
 
 const DEFAULT_LOGO_URL =
   'https://pub-36ea8e6f26f74e1c91f6de47f054dad7.r2.dev/smartQR/logo/logo.png';
@@ -26,33 +24,40 @@ export function frontendBaseUrl(): string {
   );
 }
 
+/** Public API origin for one-click email links (confirm-join redirect). */
+export function apiBaseUrl(): string {
+  return (
+    process.env.API_PUBLIC_URL?.replace(/\/$/, '') ||
+    process.env.HOST?.replace(/\/$/, '') ||
+    'http://localhost:5000'
+  );
+}
+
 export function eventPublicUrl(
   category: string,
   slug: string,
   salonMark?: string | null,
 ): string {
+  const cat = normalizeEventCategory(category);
+  const sl = slug.trim();
   if (salonMark?.trim()) {
-    return buildSalonEventAbsoluteUrl(salonMark.trim(), category, slug);
+    return buildSalonEventAbsoluteUrl(salonMark.trim(), cat, sl);
   }
-  return `${frontendBaseUrl()}/smart-event/${category}/${slug}`;
+  return `${frontendBaseUrl()}/smart-event/${encodeURIComponent(cat)}/${encodeURIComponent(sl)}`;
 }
 
+/**
+ * One-click RSVP link: hits the API, confirms in DB, then redirects to the frontend event page.
+ */
 export function eventConfirmJoinUrl(
   category: string,
   slug: string,
   email: string,
   confirm: boolean,
-  salonMark?: string | null,
+  _salonMark?: string | null,
 ): string {
-  if (salonMark?.trim()) {
-    return buildSalonEventConfirmUrl(
-      salonMark.trim(),
-      category,
-      slug,
-      email,
-      confirm,
-    );
-  }
+  const cat = encodeURIComponent(normalizeEventCategory(category));
+  const sl = encodeURIComponent(slug.trim());
   const encodedEmail = encodeURIComponent(email.trim());
-  return `${frontendBaseUrl()}/smart-event/confirm/${category}/${slug}/${encodedEmail}/${confirm ? 'true' : 'false'}`;
+  return `${apiBaseUrl()}/event/confirm-join/${cat}/${sl}/${encodedEmail}/${confirm ? 'true' : 'false'}`;
 }

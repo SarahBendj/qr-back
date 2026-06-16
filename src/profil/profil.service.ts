@@ -15,6 +15,8 @@ export class ProfilService {
   ) {}
 
   async getProfilByUserId(userId: string) {
+    await this.stripeService.ensureDefaultFreePlan(userId);
+
     const [user, planStatus] = await Promise.all([
       this.prisma.user.findUnique({
         where: { id: userId },

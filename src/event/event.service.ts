@@ -29,7 +29,7 @@ import { StripeService } from 'src/stripe/stripe.service';
 import { assertBusinessPlan } from './event-entitlement';
 import { parseInviteCsv } from './parse-invite-csv';
 import { isInviteEmailException } from './invite-email-exception';
-import { findEventByCategoryAndSlug } from './event-lookup';
+import { findEventByCategoryAndSlug, normalizeEventCategory } from './event-lookup';
 import { Express } from 'express';
 import {
   countEventGuests,
@@ -130,6 +130,7 @@ export class EventService {
   async createEvent(userId: string, dto: CreateEventDto, file?: Express.Multer.File) {
     let accessCode;
 
+    await this.stripeService.ensureDefaultFreePlan(userId);
     await assertUserHasPaidPlan(this.stripeService, userId);
 
     const user = await this.prisma.user.findUnique({ where: { id: userId } });
@@ -373,23 +374,30 @@ export class EventService {
   }
 
   async getEventByCategoryAndSlug(category: string, slug: string) {
-    if (!slug || !category) {
+    if (!slug?.trim() || !category?.trim()) {
       throw new BadRequestException('CATEGORY_AND_SLUG_REQUIRED');
     }
 
-    const event = await this.prisma.event.findUnique({
-      where: { slug, category },
-      include: {
-        links: true,
-        participants: true,
-        instructions: true,
-        user: { select: { salonProfile: { select: { mark: true } } } },
+    const event = await findEventByCategoryAndSlug(
+      this.prisma,
+      category,
+      slug,
+      {
+        include: {
+          links: true,
+          participants: true,
+          instructions: true,
+          user: { select: { salonProfile: { select: { mark: true } } } },
+        },
       },
-    });
-
-    if (!event) {
-      throw new BadRequestException('EVENT_NOT_FOUND');
-    }
+    ) as Prisma.EventGetPayload<{
+      include: {
+        links: true;
+        participants: true;
+        instructions: true;
+        user: { select: { salonProfile: { select: { mark: true } } } };
+      };
+    }>;
 
     const salonMark = event.user?.salonProfile?.mark ?? null;
     const { user: _user, ...rest } = event;
@@ -658,15 +666,16 @@ async joinEvent(category : string ,slug: string, dto: JoinEventDTO) {
     if (updated) {
       const salonMark = await this.salonMarkForUser(event.userId);
       const brand = await this.salonBrandForUser(event.userId);
+      const linkCategory = event.category ?? category;
       const confirmUrl = eventConfirmJoinUrl(
-        category,
+        linkCategory,
         slug,
         dto.email,
         true,
         salonMark,
       );
       const declineUrl = eventConfirmJoinUrl(
-        category,
+        linkCategory,
         slug,
         dto.email,
         false,
@@ -701,14 +710,12 @@ async confirmJoiningEvent(
   email: string,
   confirm: boolean,
 ) {
-  const event = await this.prisma.event.findUnique({
-    where: { category, slug },
-    include: { participants: true },
-  });
-
-  if (!event) {
-    throw new NotFoundException("EVENT_NOT_FOUND");
-  }
+  const event = await findEventByCategoryAndSlug(
+    this.prisma,
+    category,
+    slug,
+    { include: { participants: true } },
+  ) as Prisma.EventGetPayload<{ include: { participants: true } }>;
 
   const normalizedEmail = email.trim().toLowerCase();
   const participant = event.participants.find(
@@ -768,18 +775,14 @@ async confirmJoiningEvent(
     email: string,
     confirm: boolean,
   ): Promise<string> {
-    const event = await this.prisma.event.findUnique({
-      where: { category, slug },
-      select: { userId: true },
-    });
-    const salonMark = event
-      ? await this.salonMarkForUser(event.userId)
-      : null;
+    const event = await findEventByCategoryAndSlug(this.prisma, category, slug);
+    const salonMark = await this.salonMarkForUser(event.userId);
     await this.confirmJoiningEvent(category, slug, email, confirm);
     const status = confirm ? 'confirmed' : 'declined';
+    const linkCategory = event.category ?? category;
     const base = salonMark
-      ? buildSalonEventAbsoluteUrl(salonMark, category, slug)
-      : `${frontendBaseUrl()}/smart-event/${category}/${slug}`;
+      ? buildSalonEventAbsoluteUrl(salonMark, linkCategory, slug)
+      : `${frontendBaseUrl()}/smart-event/${encodeURIComponent(normalizeEventCategory(linkCategory))}/${encodeURIComponent(slug.trim())}`;
     return `${base}?rsvp=${status}`;
   }
 

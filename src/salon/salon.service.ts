@@ -368,6 +368,35 @@ export class SalonService {
     });
   }
 
+  async reorderBanners(userId: string, order: string[]) {
+    await this.assertSalonEntitlement(userId);
+    const salon = await this.prisma.salonProfile.findUnique({
+      where: { userId },
+    });
+    if (!salon) throw new NotFoundException('Salon not found');
+
+    const current = salon.bannerKeys;
+    if (
+      !Array.isArray(order) ||
+      order.length !== current.length ||
+      new Set(order).size !== order.length
+    ) {
+      throw new BadRequestException('Invalid banner order');
+    }
+
+    const currentSorted = [...current].sort();
+    const orderSorted = [...order].sort();
+    const sameKeys = currentSorted.every((k, i) => k === orderSorted[i]);
+    if (!sameKeys) {
+      throw new BadRequestException('Invalid banner order');
+    }
+
+    return this.prisma.salonProfile.update({
+      where: { userId },
+      data: { bannerKeys: order },
+    });
+  }
+
   async removeBanner(userId: string, index: number) {
     await this.assertSalonEntitlement(userId);
     const salon = await this.prisma.salonProfile.findUnique({
@@ -441,7 +470,7 @@ export class SalonService {
       return `http://localhost:${port}/salon/${encodeURIComponent(m)}`;
     }
 
-    const baseHost = process.env.SALON_PUBLIC_HOST ?? 'smartqr.pro';
+    const baseHost = process.env.SALON_PUBLIC_HOST ?? 'smart-qr.pro';
     const protocol = process.env.SALON_PUBLIC_PROTOCOL ?? 'https';
     return `${protocol}://${m}.${baseHost}`;
   }

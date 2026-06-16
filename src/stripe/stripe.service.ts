@@ -291,7 +291,28 @@ export class StripeService {
     };
   }
 
+  /**
+   * New users (and legacy accounts without a plan) start on LITE free — no Stripe, no /plans gate.
+   * Skips when a paid checkout is already in progress.
+   */
+  async ensureDefaultFreePlan(userId: string): Promise<void> {
+    const pending = await this.getPendingPlanCheckout(userId);
+    if (pending && pending.price > 0) return;
+
+    const { planPaid } = await this.getPlanStatus(userId);
+    if (planPaid) return;
+
+    const lite = await this.prisma.plan.findFirst({
+      where: { tier: PlanTier.LITE, price: 0 },
+    });
+    if (!lite) return;
+
+    await this.activateFreePlan(userId, lite);
+  }
+
   async getPlanDetails(userId: string) {
+    await this.ensureDefaultFreePlan(userId);
+
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -545,7 +566,9 @@ export class StripeService {
     await this.applyPlanToUser(plan.id, userId);
 
     return {
-      url: `${this.frontendBase()}/payment/success?free=1&plan=${plan.tier}`,
+      url: `${this.frontendBase()}/myprofile`,
+      activated: true,
+      tier: plan.tier,
     };
   }
 

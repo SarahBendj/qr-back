@@ -3,6 +3,7 @@ import { OnEvent } from '@nestjs/event-emitter';
 import { PrismaClient } from '@prisma/client';
 import { SmartQRUserMailing } from 'lib/mail/send.mail';
 import { eventConfirmJoinUrl } from 'lib/mail/brand';
+import { normalizeEventCategory } from '../event-lookup';
 import { isInviteEmailException } from '../invite-email-exception';
 import {
   INVITE_BULK_EVENT,
@@ -52,15 +53,19 @@ export class InviteBulkListener {
         }
         guestCount += 1;
 
+        const linkCategory = normalizeEventCategory(
+          payload.eventCategory ?? payload.category,
+        );
+
         const confirmUrl = eventConfirmJoinUrl(
-          payload.category,
+          linkCategory,
           payload.slug,
           email,
           true,
           payload.salonMark,
         );
         const declineUrl = eventConfirmJoinUrl(
-          payload.category,
+          linkCategory,
           payload.slug,
           email,
           false,
@@ -75,7 +80,7 @@ export class InviteBulkListener {
           declineUrl,
           eventDateTime: payload.eventDateTime,
           eventLocation: payload.eventLocation,
-          category: payload.eventCategory,
+          category: linkCategory,
           slug: payload.slug,
           salonMark: payload.salonMark,
           accessCode: payload.privateCodeForEmail,

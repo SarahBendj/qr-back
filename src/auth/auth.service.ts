@@ -73,6 +73,13 @@ export class AuthService {
     res.cookie('nest_token', accessToken, ACCESS_COOKIE_OPTS);
     res.cookie('refresh_token', refreshToken, REFRESH_COOKIE_OPTS);
 
+    await this.stripeService.ensureDefaultFreePlan(user.id);
+
+    const freshUser = await this.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { plan: true },
+    });
+
     const { planPaid, planActive } =
       await this.stripeService.getPlanStatus(user.id);
 
@@ -84,7 +91,7 @@ export class AuthService {
         name: user.name,
         picture: user.picture,
         role: user.role,
-        plan: user.plan ?? null,
+        plan: freshUser?.plan ?? null,
         planPaid,
         planActive,
       },
