@@ -47,17 +47,27 @@ export function eventPublicUrl(
 }
 
 /**
- * One-click RSVP link: hits the API, confirms in DB, then redirects to the frontend event page.
+ * One-click RSVP link from emails. Points to the frontend confirm page (always
+ * reachable at smart-qr.pro), which performs the confirm/decline API call and
+ * then shows the result. Salon events use the white-label path.
  */
 export function eventConfirmJoinUrl(
   category: string,
   slug: string,
   email: string,
   confirm: boolean,
-  _salonMark?: string | null,
+  salonMark?: string | null,
 ): string {
   const cat = encodeURIComponent(normalizeEventCategory(category));
   const sl = encodeURIComponent(slug.trim());
   const encodedEmail = encodeURIComponent(email.trim());
-  return `${apiBaseUrl()}/event/confirm-join/${cat}/${sl}/${encodedEmail}/${confirm ? 'true' : 'false'}`;
+  const action = confirm ? 'true' : 'false';
+  const base = frontendBaseUrl();
+  const mark = salonMark?.trim().toLowerCase();
+
+  if (mark) {
+    return `${base}/salon/${encodeURIComponent(mark)}/event/confirm/${cat}/${sl}/${encodedEmail}/${action}`;
+  }
+
+  return `${base}/smart-event/confirm/${cat}/${sl}/${encodedEmail}/${action}`;
 }
